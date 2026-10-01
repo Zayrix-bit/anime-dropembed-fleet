@@ -34,14 +34,6 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: 🎬 Install Modern FFmpeg 7+
-        run: |
-          mkdir -p /tmp/ffmpeg-bin
-          curl -sL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | tar -xJ -C /tmp/ffmpeg-bin --strip-components=1
-          sudo cp /tmp/ffmpeg-bin/bin/ffmpeg /usr/local/bin/ffmpeg
-          sudo cp /tmp/ffmpeg-bin/bin/ffprobe /usr/local/bin/ffprobe
-          ffmpeg -version
-
       - name: 📦 Install Dependencies
         run: npm install
 

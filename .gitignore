@@ -5,3 +5,5 @@ temp/
 check-*.js
 reset-*.js
 temp_*.js
+update-*.js
+sample_*.mp4

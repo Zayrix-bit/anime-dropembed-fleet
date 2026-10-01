@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
 import mysql from 'mysql2/promise';
 
 // Load .env if present locally
@@ -67,73 +66,18 @@ async function checkStreamReachable(streamUrl) {
   }
 }
 
-function remuxStreamWithFfmpeg(streamUrl, outputPath) {
-  return new Promise((resolve, reject) => {
-    const headers = 'Origin: https://blakiteapi.xyz\r\nReferer: https://blakiteapi.xyz/\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n';
-    const args = [
-      '-headers', headers,
-      '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
-      '-allowed_extensions', 'ALL',
-      '-allowed_segment_extensions', 'ALL',
-      '-extension_picky', '0',
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
-      '-i', streamUrl,
-      '-c', 'copy',
-      '-movflags', '+faststart',
-      outputPath,
-      '-y'
-    ];
-
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-
-    // 8-minute watchdog to prevent stalling forever
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch {}
-      reject(new Error('FFmpeg remux timed out after 8 minutes'));
-    }, 480000);
-
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString();
-    });
-
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
-        resolve();
-      } else {
-        reject(new Error(`FFmpeg exited with code ${code}. Stderr: ${stderr.slice(-500)}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
-async function uploadToDropEmbed(filePath, title, maxRetries = 4) {
-  const uploadUrl = 'https://dropembed.com/api/videos/upload';
+async function uploadToDropEmbedViaRemote(streamUrl, title, maxRetries = 3) {
+  const remoteUrl = 'https://dropembed.com/api/videos/remote-upload';
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const fileBuffer = fs.readFileSync(filePath);
-      const blob = new Blob([fileBuffer], { type: 'video/mp4' });
-
-      const formData = new FormData();
-      formData.append('video', blob, path.basename(filePath));
-      if (title) formData.append('title', title);
-      if (DROPEMBED_FOLDER_ID) formData.append('folder_id', String(DROPEMBED_FOLDER_ID));
-
-      const res = await fetch(uploadUrl, {
+      const res = await fetch(remoteUrl, {
         method: 'POST',
         headers: {
-          'X-API-Key': DROPEMBED_API_KEY
+          'X-API-Key': DROPEMBED_API_KEY,
+          'Content-Type': 'application/json'
         },
-        body: formData
+        body: JSON.stringify({ urls: [streamUrl] })
       });
 
       const resText = await res.text();
@@ -141,26 +85,70 @@ async function uploadToDropEmbed(filePath, title, maxRetries = 4) {
       try { json = JSON.parse(resText); } catch {}
 
       if (res.status === 429) {
-        const waitSec = attempt * 12;
-        console.warn(`   ⏳ [DropEmbed] Rate Limited (429). Pausing ${waitSec}s (Attempt ${attempt}/${maxRetries})...`);
-        await new Promise(r => setTimeout(r, waitSec * 1000));
-        continue;
-      }
-
-      if (res.status === 502 || res.status === 503) {
         const waitSec = attempt * 10;
-        console.warn(`   ⏳ [DropEmbed] HTTP ${res.status}. Pausing ${waitSec}s (Attempt ${attempt}/${maxRetries})...`);
+        console.warn(`   ⏳ [DropEmbed Remote] Rate Limited (429). Pausing ${waitSec}s...`);
         await new Promise(r => setTimeout(r, waitSec * 1000));
         continue;
       }
 
       if (!res.ok) {
-        throw new Error(`DropEmbed upload HTTP ${res.status}: ${resText.slice(0, 150)}`);
+        throw new Error(`Remote upload HTTP ${res.status}: ${resText.slice(0, 150)}`);
       }
 
-      const videoId = json?.video_id || json?.data?.video_id || json?.id;
+      if (resText.includes('already queued') || json?.message?.includes('already queued')) {
+        console.log(`   ℹ️ [DropEmbed Remote] URL already queued on DropEmbed, fetching existing video ID...`);
+        try {
+          const listRes = await fetch('https://dropembed.com/api/videos?page=1&limit=50', {
+            headers: { 'X-API-Key': DROPEMBED_API_KEY }
+          });
+          const listJson = await listRes.json();
+          const items = listJson.videos || listJson.data || [];
+          const existing = items.find(v => v.description && v.description.includes(streamUrl));
+          if (existing?.id) {
+            if (title) {
+              fetch(`https://dropembed.com/api/videos/${existing.id}`, {
+                method: 'PATCH',
+                headers: {
+                  'X-API-Key': DROPEMBED_API_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title, folder_id: DROPEMBED_FOLDER_ID || 0 })
+              }).catch(() => {});
+            }
+            return {
+              videoId: String(existing.id).trim(),
+              embedUrl: `https://dropembed.com/v/${existing.id}`,
+              watchUrl: `https://dropembed.com/v/${existing.id}`
+            };
+          }
+        } catch (findErr) {
+          console.warn(`   ⚠️ Existing video lookup warning: ${findErr.message}`);
+        }
+      }
+
+      const task = json?.tasks?.[0];
+      const videoId = task?.video_id || json?.video_id;
       if (!videoId) {
-        throw new Error(`DropEmbed response missing video_id: ${resText.slice(0, 200)}`);
+        throw new Error(`No video_id returned in remote upload: ${resText.slice(0, 200)}`);
+      }
+
+      // Update title and folder if specified
+      if (title) {
+        try {
+          const patchBody = { title };
+          if (DROPEMBED_FOLDER_ID) patchBody.folder_id = DROPEMBED_FOLDER_ID;
+
+          await fetch(`https://dropembed.com/api/videos/${videoId}`, {
+            method: 'PATCH',
+            headers: {
+              'X-API-Key': DROPEMBED_API_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(patchBody)
+          });
+        } catch (patchErr) {
+          console.warn(`   ⚠️ Title PATCH warning: ${patchErr.message}`);
+        }
       }
 
       return {
@@ -171,12 +159,12 @@ async function uploadToDropEmbed(filePath, title, maxRetries = 4) {
     } catch (err) {
       if (attempt === maxRetries) throw err;
       const waitSec = attempt * 5;
-      console.warn(`   ⚠️ [DropEmbed] Upload attempt ${attempt} error: ${err.message}. Retrying in ${waitSec}s...`);
+      console.warn(`   ⚠️ [DropEmbed Remote] Attempt ${attempt} failed: ${err.message}. Retrying in ${waitSec}s...`);
       await new Promise(r => setTimeout(r, waitSec * 1000));
     }
   }
 
-  throw new Error(`Failed to upload to DropEmbed after ${maxRetries} attempts`);
+  throw new Error(`Failed remote upload to DropEmbed after ${maxRetries} attempts`);
 }
 
 async function getEpisodeDataIdAndRanges(ep, pool) {
@@ -233,7 +221,7 @@ async function getEpisodeDataIdAndRanges(ep, pool) {
 
 async function main() {
   console.log(`=============================================================`);
-  console.log(`🚀 ANIME DROPEMBED FLEET WORKER`);
+  console.log(`🚀 ANIME DROPEMBED FLEET WORKER (ULTRA-FAST REMOTE CLOUD)`);
   console.log(`⚙️  Shard: [${SHARD_INDEX + 1} / ${TOTAL_SHARDS}] (Mod: id % ${TOTAL_SHARDS} = ${SHARD_INDEX})`);
   if (IS_TEST) console.log(`🧪 Running in TEST mode (1 episode only)`);
   if (TARGET_TMDB_ID) console.log(`🎯 Target TMDB ID: ${TARGET_TMDB_ID}`);
@@ -273,8 +261,6 @@ async function main() {
   });
 
   let processedCount = 0;
-  const tempDir = path.resolve('./temp');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
   try {
     while (true) {
@@ -324,10 +310,10 @@ async function main() {
       const dataId = sourceInfo.dataId;
       const ranges = parseRanges(sourceInfo.ranges);
 
-      // Cascading Fallback: 1080p -> 720p -> 480p -> 360p -> 240p
-      let successfulRemux = false;
+      // Cascading Quality Candidate: 1080p -> 720p -> 480p -> 360p -> 240p
+      let successfulCandidate = null;
       let finalSpec = null;
-      let finalTempFile = null;
+      let finalStreamUrl = null;
       let finalUploadTitle = null;
 
       for (const spec of QUALITY_SPECS) {
@@ -335,61 +321,44 @@ async function main() {
         let streamUrl = null;
 
         if (range) {
-          // HLS tar archive with byte range
           const rangeParam = `&r_range=${encodeURIComponent(range)}`;
           streamUrl = `https://hugh.cdn.rumble.cloud/video/${dataId}.${spec.code}.tar?r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl${rangeParam}`;
         } else if (Object.keys(ranges).length === 0) {
-          // Direct MP4 stream (e.g. movies or standalone MP4 streams)
           streamUrl = `https://hugh.cdn.rumble.cloud/video/${dataId}.${spec.code}.mp4`;
         } else {
-          // If ranges are defined but this quality is not present in ranges, skip
           continue;
         }
 
         console.log(`   🔍 Checking quality candidate: ${spec.label}...`);
         const isReachable = await checkStreamReachable(streamUrl);
         if (!isReachable) {
-          console.log(`   ⏩ [${spec.label}] not accessible or forbidden, checking next lower quality...`);
+          console.log(`   ⏩ [${spec.label}] not accessible, checking next lower quality...`);
           continue;
         }
 
-        console.log(`   ⏳ Remuxing (${spec.label}) via FFmpeg...`);
+        console.log(`   ✅ Quality ${spec.label} reachable!`);
+        successfulCandidate = spec;
+        finalSpec = spec;
+        finalStreamUrl = streamUrl;
         const cleanTitle = (ep.anime_title || 'Anime').replace(/[^a-zA-Z0-9 _-]/g, '').trim().substring(0, 50);
-        const tempFile = path.join(tempDir, `ep_${ep.id}_${cleanTitle.replace(/\s+/g, '_')}_s${ep.season}e${ep.episode}_${spec.label}.mp4`);
-        const startTime = Date.now();
-
-        try {
-          await remuxStreamWithFfmpeg(streamUrl, tempFile);
-          const remuxSec = ((Date.now() - startTime) / 1000).toFixed(1);
-          const fileSizeMB = (fs.statSync(tempFile).size / (1024 * 1024)).toFixed(1);
-          console.log(`   ✅ Remuxed ${spec.label} (${fileSizeMB} MB in ${remuxSec}s)`);
-
-          successfulRemux = true;
-          finalSpec = spec;
-          finalTempFile = tempFile;
-          finalUploadTitle = `${cleanTitle} - S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')} [${spec.label}]`;
-          break;
-        } catch (ffmpegErr) {
-          console.log(`   ⚠️ FFmpeg failed on ${spec.label}: ${ffmpegErr.message}. Trying next lower quality...`);
-          if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch {}
-          }
-        }
+        finalUploadTitle = `${cleanTitle} - S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')} [${spec.label}]`;
+        break;
       }
 
-      if (!successfulRemux || !finalTempFile) {
+      if (!successfulCandidate || !finalStreamUrl) {
         console.error(`   ❌ All qualities failed for episode #${ep.id}`);
         await pool.query(`UPDATE dropembed_anime_episodes SET stream_type = 'HLS_ERROR' WHERE id = ?`, [ep.id]);
         continue;
       }
 
+      // Submit to DropEmbed via Cloud Remote Upload
       try {
-        console.log(`   📤 Uploading to DropEmbed: "${finalUploadTitle}"...`);
+        console.log(`   🚀 Dispatching Remote Upload to DropEmbed: "${finalUploadTitle}"...`);
         const upStart = Date.now();
-        const dropembedResult = await uploadToDropEmbed(finalTempFile, finalUploadTitle);
+        const dropembedResult = await uploadToDropEmbedViaRemote(finalStreamUrl, finalUploadTitle);
         const upSec = ((Date.now() - upStart) / 1000).toFixed(1);
 
-        console.log(`   ✅ Uploaded in ${upSec}s! Video ID: ${dropembedResult.videoId}`);
+        console.log(`   ✅ Upload Queued in ${upSec}s! Video ID: ${dropembedResult.videoId}`);
         console.log(`      🔗 Embed URL: ${dropembedResult.embedUrl}`);
 
         const qualitiesPayload = JSON.stringify({
@@ -424,15 +393,11 @@ async function main() {
         console.log(`   💾 Database updated: MP4 stream linked (${finalSpec.label})!`);
         processedCount++;
 
-        // Clean up remuxed temp file
-        if (fs.existsSync(finalTempFile)) {
-          try { fs.unlinkSync(finalTempFile); } catch {}
-        }
+        // Brief 1-second pause to prevent aggressive API rate-limiting
+        await new Promise(r => setTimeout(r, 1000));
       } catch (uploadErr) {
-        console.error(`   ❌ Upload failed for episode #${ep.id}: ${uploadErr.message}`);
-        if (finalTempFile && fs.existsSync(finalTempFile)) {
-          try { fs.unlinkSync(finalTempFile); } catch {}
-        }
+        console.error(`   ❌ Remote Upload failed for episode #${ep.id}: ${uploadErr.message}`);
+        await pool.query(`UPDATE dropembed_anime_episodes SET stream_type = 'UPLOAD_ERROR' WHERE id = ?`, [ep.id]);
       }
     }
   } finally {
