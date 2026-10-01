@@ -71,13 +71,16 @@ async function uploadToDropEmbedViaRemote(streamUrl, title, maxRetries = 3) {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      const separator = streamUrl.includes('?') ? '&' : '?';
+      const saltedUrl = `${streamUrl}${separator}ts=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
       const res = await fetch(remoteUrl, {
         method: 'POST',
         headers: {
           'X-API-Key': DROPEMBED_API_KEY,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ urls: [streamUrl] })
+        body: JSON.stringify({ urls: [saltedUrl] })
       });
 
       const resText = await res.text();
