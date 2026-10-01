@@ -2,3 +2,6 @@ node_modules/
 temp/
 .env
 *.log
+check-*.js
+reset-*.js
+temp_*.js

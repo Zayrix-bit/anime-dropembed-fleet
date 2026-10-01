@@ -52,8 +52,9 @@ function parseRanges(rangesStr) {
 
 async function checkStreamReachable(streamUrl) {
   try {
+    const isDirectMp4 = streamUrl.endsWith('.mp4');
     const res = await fetch(streamUrl, {
-      method: 'GET',
+      method: isDirectMp4 ? 'HEAD' : 'GET',
       headers: {
         'Origin': 'https://blakiteapi.xyz',
         'Referer': 'https://blakiteapi.xyz/',
@@ -211,7 +212,7 @@ async function getEpisodeDataIdAndRanges(ep, pool) {
         const fetchedRanges = json.data.ranges || '';
         // Cache back into dropembed_anime_episodes
         const cachedJson = JSON.stringify({
-          format: 'M3U8',
+          format: json.data.format || 'M3U8',
           dataId: fetchedDataId,
           ranges: fetchedRanges,
           qid: json.data.qid
@@ -331,10 +332,19 @@ async function main() {
 
       for (const spec of QUALITY_SPECS) {
         const range = ranges[spec.label.toLowerCase()];
-        if (Object.keys(ranges).length > 0 && !range) continue;
+        let streamUrl = null;
 
-        const rangeParam = range ? `&r_range=${encodeURIComponent(range)}` : '';
-        const streamUrl = `https://hugh.cdn.rumble.cloud/video/${dataId}.${spec.code}.tar?r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl${rangeParam}`;
+        if (range) {
+          // HLS tar archive with byte range
+          const rangeParam = `&r_range=${encodeURIComponent(range)}`;
+          streamUrl = `https://hugh.cdn.rumble.cloud/video/${dataId}.${spec.code}.tar?r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl${rangeParam}`;
+        } else if (Object.keys(ranges).length === 0) {
+          // Direct MP4 stream (e.g. movies or standalone MP4 streams)
+          streamUrl = `https://hugh.cdn.rumble.cloud/video/${dataId}.${spec.code}.mp4`;
+        } else {
+          // If ranges are defined but this quality is not present in ranges, skip
+          continue;
+        }
 
         console.log(`   🔍 Checking quality candidate: ${spec.label}...`);
         const isReachable = await checkStreamReachable(streamUrl);
@@ -343,7 +353,7 @@ async function main() {
           continue;
         }
 
-        console.log(`   ⏳ Remuxing HLS (${spec.label}) via FFmpeg...`);
+        console.log(`   ⏳ Remuxing (${spec.label}) via FFmpeg...`);
         const cleanTitle = (ep.anime_title || 'Anime').replace(/[^a-zA-Z0-9 _-]/g, '').trim().substring(0, 50);
         const tempFile = path.join(tempDir, `ep_${ep.id}_${cleanTitle.replace(/\s+/g, '_')}_s${ep.season}e${ep.episode}_${spec.label}.mp4`);
         const startTime = Date.now();
@@ -420,7 +430,6 @@ async function main() {
         }
       } catch (uploadErr) {
         console.error(`   ❌ Upload failed for episode #${ep.id}: ${uploadErr.message}`);
-        // Clean up temp file
         if (finalTempFile && fs.existsSync(finalTempFile)) {
           try { fs.unlinkSync(finalTempFile); } catch {}
         }
