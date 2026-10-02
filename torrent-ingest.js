@@ -97,11 +97,116 @@ function initLocalServerAndTunnel() {
   });
 }
 
+// ── Resolver for Nyaa.si URLs, Direct .torrent files, and Magnet URIs ──
+async function resolveTorrentSource(input) {
+  const trimmed = input.trim();
+
+  // Case 1: Direct Magnet URI
+  if (trimmed.startsWith('magnet:?')) {
+    console.log(`🧲 Input is a direct Magnet URI`);
+    return { type: 'magnet', source: trimmed };
+  }
+
+  // Case 2: Nyaa.si / Sukebei View URL (e.g., https://nyaa.si/view/2168567)
+  const nyaaMatch = trimmed.match(/(?:nyaa\.si|sukebei\.nyaa\.si|nyaa\.land)\/view\/(\d+)/i);
+  if (nyaaMatch) {
+    const nyaaId = nyaaMatch[1];
+    console.log(`🔍 Detected Nyaa.si View URL (ID: ${nyaaId})`);
+
+    // Try fetching page to extract magnet URI
+    try {
+      console.log(`   Fetching ${trimmed} to extract magnet link...`);
+      const res = await fetch(trimmed, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (res.ok) {
+        const html = await res.text();
+        const magnetMatch = html.match(/href=["'](magnet:\?[^"']+)["']/i);
+        if (magnetMatch) {
+          const magnet = magnetMatch[1].replace(/&amp;/g, '&');
+          console.log(`   ✅ Extracted Magnet Link from Nyaa: ${magnet.slice(0, 90)}...`);
+          return { type: 'magnet', source: magnet };
+        }
+      }
+    } catch (err) {
+      console.warn(`   ⚠️ Could not fetch Nyaa HTML directly (${err.message}). Trying .torrent download...`);
+    }
+
+    // Direct Nyaa download link fallback
+    const directTorrentUrl = `https://nyaa.si/download/${nyaaId}.torrent`;
+    console.log(`   🌐 Using direct Nyaa .torrent URL: ${directTorrentUrl}`);
+    return { type: 'torrent_url', source: directTorrentUrl };
+  }
+
+  // Case 3: Direct .torrent URL
+  if (trimmed.endsWith('.torrent') || trimmed.includes('/download/')) {
+    console.log(`🌐 Input is a direct .torrent file URL: ${trimmed}`);
+    return { type: 'torrent_url', source: trimmed };
+  }
+
+  // Case 4: Any Webpage with a magnet link (e.g. 1337x, AnimeTM, etc.)
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      console.log(`🔍 Fetching webpage to extract magnet: ${trimmed}`);
+      const res = await fetch(trimmed, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const magnetMatch = html.match(/href=["'](magnet:\?[^"']+)["']/i);
+        if (magnetMatch) {
+          const magnet = magnetMatch[1].replace(/&amp;/g, '&');
+          console.log(`   ✅ Extracted Magnet Link: ${magnet.slice(0, 90)}...`);
+          return { type: 'magnet', source: magnet };
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not fetch page: ${err.message}`);
+    }
+    return { type: 'torrent_url', source: trimmed };
+  }
+
+  return { type: 'raw', source: trimmed };
+}
+
 // ── Torrent Downloader using aria2c ──
-async function downloadTorrent(magnetOrUrl) {
+async function downloadTorrent(rawInput) {
+  const resolved = await resolveTorrentSource(rawInput);
+  let targetArg = resolved.source;
+
+  // If it's a .torrent URL, download the .torrent file first or pass directly
+  if (resolved.type === 'torrent_url') {
+    const torrentFile = path.join(DOWNLOADS_DIR, 'input.torrent');
+    try {
+      console.log(`📥 Downloading .torrent file from ${resolved.source}...`);
+      const res = await fetch(resolved.source, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        },
+        signal: AbortSignal.timeout(20000)
+      });
+      if (res.ok) {
+        const buffer = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(torrentFile, buffer);
+        console.log(`✅ Saved .torrent file (${buffer.length} bytes) to ${torrentFile}`);
+        targetArg = torrentFile;
+      }
+    } catch (err) {
+      console.warn(`Direct .torrent file download warning: ${err.message}. Passing URL to aria2c directly.`);
+    }
+  }
+
   console.log(`\n======================================================`);
   console.log(`🧲 STARTING TORRENT DOWNLOAD VIA ARIA2C`);
-  console.log(`Source: ${magnetOrUrl.slice(0, 100)}...`);
+  console.log(`Target: ${targetArg.slice(0, 100)}...`);
   console.log(`======================================================`);
 
   const trackers = [
@@ -124,7 +229,7 @@ async function downloadTorrent(magnetOrUrl) {
     '--summary-interval=5',
     '--bt-tracker=' + trackers,
     '--dir=' + DOWNLOADS_DIR,
-    magnetOrUrl
+    targetArg
   ];
 
   const startTime = Date.now();
