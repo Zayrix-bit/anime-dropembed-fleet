@@ -341,14 +341,7 @@ function findVideoFiles(dir) {
 }
 
 // ── Episode Number Parser ──
-function extractEpisodeInfo(filename, defaultSeason = 1, defaultEpisode = 'AUTO') {
-  if (defaultEpisode !== 'AUTO' && !isNaN(parseInt(defaultEpisode, 10))) {
-    return {
-      season: defaultSeason,
-      episode: parseInt(defaultEpisode, 10)
-    };
-  }
-
+function extractEpisodeInfo(filename, defaultSeason = 1) {
   // 1. S01E05 or s1e5
   const sEpMatch = filename.match(/[Ss](\d{1,2})[Ee](\d{1,3})/i);
   if (sEpMatch) {
@@ -617,24 +610,40 @@ async function main() {
     console.log(`\n──────────────────────────────────────────────────────`);
     console.log(`▶ Processing: ${rawFilename}`);
 
-    // Parse Season & Episode
-    const info = extractEpisodeInfo(rawFilename, TARGET_SEASON, TARGET_EPISODE);
-    console.log(`   🎯 Detected: Season ${info.season}, Episode ${info.episode}`);
+    // Parse Season & Episode from filename
+    const detected = extractEpisodeInfo(rawFilename, TARGET_SEASON);
+    let sNum = detected.season || TARGET_SEASON;
+    let epNum = detected.episode;
+
+    // Handle single-file torrent vs multi-file batch torrent
+    if (videoFiles.length === 1 && TARGET_EPISODE !== 'AUTO' && !isNaN(parseInt(TARGET_EPISODE, 10))) {
+      // Single file download: respect explicitly requested episode
+      epNum = parseInt(TARGET_EPISODE, 10);
+      sNum = TARGET_SEASON;
+    } else if (TARGET_EPISODE !== 'AUTO' && !isNaN(parseInt(TARGET_EPISODE, 10))) {
+      // Multi-file batch: only process the specifically requested episode
+      if (epNum !== parseInt(TARGET_EPISODE, 10) || (TARGET_SEASON && sNum !== TARGET_SEASON)) {
+        console.log(`   ⏭️ Skipping file (Detected S${sNum}E${epNum}, but target is S${TARGET_SEASON}E${TARGET_EPISODE})`);
+        continue;
+      }
+    }
+
+    console.log(`   🎯 Selected Target: Season ${sNum}, Episode ${epNum}`);
 
     // Check if this episode is already playable MP4 in DB (unless explicitly targeted)
     if (TARGET_EPISODE === 'AUTO') {
       const [existing] = await pool.execute(
         "SELECT id, filecode FROM dropembed_anime_episodes WHERE tmdb_id = ? AND season = ? AND episode = ? AND stream_type = 'MP4' AND filecode IS NOT NULL AND LENGTH(filecode) > 6",
-        [TMDB_ID, info.season, info.episode]
+        [TMDB_ID, sNum, epNum]
       );
       if (existing.length > 0) {
-        console.log(`   ⏭️ S${info.season}E${info.episode} already has active DropEmbed MP4 (${existing[0].filecode}). Skipping!`);
+        console.log(`   ⏭️ S${sNum}E${epNum} already has active DropEmbed MP4 (${existing[0].filecode}). Skipping!`);
         continue;
       }
     }
 
-    const safeTitle = `${animeTitle || 'Anime'} S${String(info.season).padStart(2, '0')}E${String(info.episode).padStart(2, '0')} [1080p]`;
-    const cleanOutputName = `tmdb_${TMDB_ID}_s${info.season}e${info.episode}_${Date.now()}.mp4`;
+    const safeTitle = `${animeTitle || 'Anime'} S${String(sNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')} [1080p]`;
+    const cleanOutputName = `tmdb_${TMDB_ID}_s${sNum}e${epNum}_${Date.now()}.mp4`;
     const outputPath = path.join(PROCESSED_DIR, cleanOutputName);
 
     try {
@@ -647,7 +656,7 @@ async function main() {
       console.log(`   🎉 Uploaded! DropEmbed Filecode: ${filecode}`);
 
       // Update MySQL
-      await updateEpisodeInDb(pool, TMDB_ID, info.season, info.episode, filecode, animeTitle);
+      await updateEpisodeInDb(pool, TMDB_ID, sNum, epNum, filecode, animeTitle);
       processedCount++;
 
       // Cleanup processed mp4 file to preserve disk
