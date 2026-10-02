@@ -138,7 +138,14 @@ async function resolveTorrentSource(input) {
           if (!chosen) chosen = results[0];
 
           console.log(`   ✅ Tsukihime matched: "${chosen.name}"`);
-          const magnet = `magnet:?xt=urn:btih:${chosen.btih}&dn=${encodeURIComponent(chosen.name)}`;
+          const trackers = [
+            'http://nyaa.tracker.wf:7777/announce',
+            'udp://open.stealth.si:80/announce',
+            'udp://tracker.opentrackr.org:1337/announce',
+            'udp://exodus.desync.com:6969/announce',
+            'udp://tracker.torrent.eu.org:451/announce'
+          ].map(t => `&tr=${encodeURIComponent(t)}`).join('');
+          const magnet = `magnet:?xt=urn:btih:${chosen.btih}&dn=${encodeURIComponent(chosen.name)}${trackers}`;
           return { type: 'magnet', source: magnet };
         } else {
           console.warn(`   ⚠️ No results found on Tsukihime API for "${query}".`);
