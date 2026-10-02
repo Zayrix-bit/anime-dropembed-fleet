@@ -6,9 +6,11 @@
   "main": "worker.js",
   "scripts": {
     "start": "node worker.js",
+    "portal": "node server.js",
     "test-one": "node worker.js --test"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "mysql2": "^3.9.7"
   }
 }

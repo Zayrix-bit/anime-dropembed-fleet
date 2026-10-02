@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DropEmbed Fleet Cloud Engine | Live Migration & Storage Dashboard</title>
+  <meta name="description" content="Real-time production dashboard monitoring the 10-shard cloud migration of 6,113 anime episodes to DropEmbed high-speed streaming infrastructure.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="fleet.css">
+</head>
+<body>
+
+  <!-- Top Application Bar -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-left">
+        <a href="/" class="btn-portal-back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Anime Portal
+        </a>
+        <div class="header-divider"></div>
+        <div class="header-title-block">
+          <div class="service-pill">
+            <span class="service-dot"></span>
+            <span>DROPEMBED FLEET CLOUD ENGINE</span>
+          </div>
+          <h1 class="header-title">HLS to DropEmbed MP4 Dashboard</h1>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="db-status-pill">
+          <span class="db-indicator"></span>
+          <span id="connStatusText">DB: 37.27.232.161 (Connected)</span>
+        </div>
+        <div class="sync-pill">
+          <span class="sync-label">Sync in:</span>
+          <span id="syncTimerSec" class="sync-time font-mono">5s</span>
+        </div>
+        <button id="manualRefreshBtn" class="btn-refresh" title="Force refresh database status">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          Refresh
+        </button>
+        <a href="http://localhost:3000/fleet" target="_blank" class="btn-vidara-fleet" title="Open Vidara Fleet Dashboard">
+          <span>🔁 Vidara Fleet</span>
+        </a>
+        <a href="https://github.com/Zayrix-bit/anime-dropembed-fleet/actions" target="_blank" rel="noopener" class="btn-workflow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          GitHub Actions Workflow
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="dashboard-body">
+
+    <!-- DropEmbed Account & Storage Status Hero Card -->
+    <section class="account-hero-card">
+      <div class="account-card-header">
+        <div class="acc-brand">
+          <div class="acc-logo-badge">DE</div>
+          <div>
+            <span class="acc-sub">DROPEMBED CLOUD INFRASTRUCTURE</span>
+            <h3 class="acc-title">Production Ingest Engine Status</h3>
+          </div>
+        </div>
+        <div class="acc-status-pill">
+          <span class="acc-live-dot"></span>
+          <span id="accStatusBadge">ACTIVE & UNLIMITED</span>
+        </div>
+      </div>
+
+      <div class="account-grid">
+        <div class="account-metric-box">
+          <span class="m-label">Account User</span>
+          <strong class="m-val" id="accUsername">elfen0909</strong>
+          <span class="m-sub" id="accEmail">rk18109ry@gmail.com</span>
+        </div>
+        <div class="account-metric-box">
+          <span class="m-label">DropEmbed Total Videos</span>
+          <strong class="m-val font-mono" id="accTotalVideos">5,633</strong>
+          <span class="m-sub text-green">100% Cloud Stream Ready</span>
+        </div>
+        <div class="account-metric-box">
+          <span class="m-label">Cloud Storage Used</span>
+          <strong class="m-val font-mono text-cyan" id="accStorageUsed">345 GB</strong>
+          <span class="m-sub" id="accStorageMb">344,984 MB (Unlimited Plan)</span>
+        </div>
+        <div class="account-metric-box">
+          <span class="m-label">Account Balance</span>
+          <strong class="m-val font-mono text-gold" id="accBalance">$0.5018</strong>
+          <span class="m-sub">Credits Available</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Overall Catalog Progress Banner -->
+    <section class="catalog-hero-card">
+      <div class="hero-top-row">
+        <div class="hero-info">
+          <span class="hero-kicker">TOTAL CATALOG MIGRATION PROGRESS</span>
+          <div class="hero-headline-wrap">
+            <span id="bannerPct" class="hero-pct-badge font-mono">92.2%</span>
+            <h2 class="hero-headline">Complete Migration to DropEmbed MP4</h2>
+          </div>
+          <p class="hero-stats-line">
+            <strong id="bannerMp4Count">5,633</strong> converted to MP4 • 
+            <strong id="bannerHlsCount">0</strong> pending HLS queue • 
+            <strong id="bannerTotalCount">6,113</strong> total episodes across <strong>284</strong> anime series
+          </p>
+        </div>
+        <div class="hero-metrics-pill">
+          <div class="hero-metric-item">
+            <span class="hero-sublabel">Fleet Concurrency</span>
+            <span class="hero-subval">10 Parallel Shards</span>
+          </div>
+          <div class="hero-stat-sep"></div>
+          <div class="hero-metric-item">
+            <span class="hero-sublabel">Pending Ingest</span>
+            <span class="hero-subval font-mono text-green" id="pendingQueueVal">0 Episodes</span>
+          </div>
+          <div class="hero-stat-sep"></div>
+          <div class="hero-metric-item">
+            <span class="hero-sublabel">Upstream Dead</span>
+            <span class="hero-subval font-mono text-muted" id="upstreamDeadVal">480 Streams</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Glowing Animated Progress Bar -->
+      <div class="progress-track">
+        <div id="bannerProgressBar" class="progress-fill" style="width: 92.2%;">
+          <div class="progress-glow"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Metrics Grid -->
+    <div class="metrics-summary-row">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Live DropEmbed MP4s</span>
+          <div class="metric-icon-wrap icon-green">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+        </div>
+        <div class="metric-val-wrap">
+          <span id="metricMp4Total" class="metric-big-num font-mono">5,633</span>
+          <span class="metric-badge badge-green">92.2%</span>
+        </div>
+        <span class="metric-footnote">Fully remuxed and playable on DropEmbed CDN</span>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Pending Queue (HLS)</span>
+          <div class="metric-icon-wrap icon-purple">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+        </div>
+        <div class="metric-val-wrap">
+          <span id="metricHlsTotal" class="metric-big-num font-mono">0</span>
+          <span class="metric-badge badge-cyan">Queue Clear</span>
+        </div>
+        <span class="metric-footnote">All available streams processed</span>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Series 100% Completed</span>
+          <div class="metric-icon-wrap icon-gold">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </div>
+        </div>
+        <div class="metric-val-wrap">
+          <span id="metricSeriesComplete" class="metric-big-num font-mono">272</span>
+          <span class="metric-badge badge-gold">of 284</span>
+        </div>
+        <span class="metric-footnote">Entire seasons completely on DropEmbed</span>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Upstream Dead Streams</span>
+          <div class="metric-icon-wrap icon-red">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+        </div>
+        <div class="metric-val-wrap">
+          <span id="metricErrorTotal" class="metric-big-num font-mono">480</span>
+          <span class="metric-badge badge-red">7.8%</span>
+        </div>
+        <span class="metric-footnote">178 CDN 403 AccessDenied + 302 Blakite 404</span>
+      </div>
+    </div>
+
+    <!-- Charts & Live Feed Section -->
+    <div class="dashboard-grid-2col">
+      <!-- Quality Distribution Chart Card -->
+      <section class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">DropEmbed Quality Distribution</h3>
+            <span class="panel-sub">Highest resolution cascade breakdown across library</span>
+          </div>
+        </div>
+        <div class="chart-container-wrap">
+          <canvas id="qualityChart"></canvas>
+        </div>
+        <div id="qualityLegend" class="quality-legend-row"></div>
+      </section>
+
+      <!-- Live Activity Stream Card -->
+      <section class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">DropEmbed Live Activity Feed</h3>
+            <span class="panel-sub">Latest converted episodes streaming on DropEmbed</span>
+          </div>
+          <span class="feed-pulse-indicator">
+            <span class="pulse-dot"></span>
+            LIVE
+          </span>
+        </div>
+        <div id="liveActivityList" class="live-activity-list">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+    </div>
+
+    <!-- 10-Shard Parallel Matrix Card -->
+    <section class="panel-card shard-matrix-panel">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">10-Shard Parallel Fleet Matrix</h3>
+          <span class="panel-sub">Continuous modulo partitioning (id % 10)</span>
+        </div>
+        <span class="shard-count-tag">10 / 10 Shards Synchronized</span>
+      </div>
+      <div id="shardsGrid" class="shards-grid">
+        <!-- Dynamically populated -->
+      </div>
+    </section>
+
+    <!-- Series Progress Breakdown Table -->
+    <section class="panel-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Series Migration Breakdown</h3>
+          <span class="panel-sub">Detailed progress for all 284 anime titles</span>
+        </div>
+        <div class="table-search-wrap">
+          <input type="text" id="seriesSearchInput" placeholder="Filter series by title..." class="series-search-input">
+        </div>
+      </div>
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Series</th>
+              <th>Format</th>
+              <th>Total Episodes</th>
+              <th>DropEmbed MP4</th>
+              <th>Pending HLS</th>
+              <th>Errors</th>
+              <th>Progress</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="seriesTableBody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="fleet.js"></script>
+</body>
+</html>

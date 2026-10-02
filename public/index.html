@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DropEmbed Anime Hindi - Cloud MP4 Streaming Portal</title>
+  <meta name="description" content="Watch 5,600+ Hindi Dubbed Anime episodes streaming directly from DropEmbed high-speed cloud infrastructure.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Ambient Glowing Background Orbs -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+
+  <!-- Header Navigation -->
+  <header class="navbar" id="mainNavbar">
+    <div class="nav-container">
+      <div class="brand" id="brandLogo" onclick="window.scrollTo({ top: 0, behavior: 'smooth' })">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">DROP<span class="brand-accent">EMBED</span> <span class="brand-subtag">HINDI</span></span>
+          <span class="brand-tag">5,633+ CLOUD MP4 STREAMS</span>
+        </div>
+      </div>
+
+      <!-- Instant Search Bar -->
+      <div class="search-box">
+        <span class="search-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </span>
+        <input type="text" id="searchInput" placeholder="Search 284+ Hindi Anime (e.g. Demon Slayer, Naruto, Bleach, Re:Monster)..." autocomplete="off">
+        <button id="clearSearchBtn" class="clear-btn" style="display:none;">✕</button>
+      </div>
+
+      <!-- Quick Live Stats & Links -->
+      <div class="nav-stats" id="navStats">
+        <a href="/fleet" class="stat-pill fleet-nav-pill">
+          <span class="stat-dot dot-live-pulse"></span>
+          <span>🛰️ DropEmbed Fleet Hub</span>
+        </a>
+        <div class="stat-pill">
+          <span class="stat-dot dot-green"></span>
+          <strong id="statMp4">5,633</strong> MP4
+        </div>
+        <div class="stat-pill">
+          <span class="stat-dot dot-cyan"></span>
+          <strong id="statStorage">345 GB</strong> Cloud
+        </div>
+        <div class="stat-pill stat-badge-gold">
+          <strong>284</strong> Titles
+        </div>
+        <a href="http://localhost:3000" target="_blank" class="stat-pill vidara-switcher-pill" title="Open Vidara Portal on Port 3000">
+          <span>🔁 Vidara Portal</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Hero Billboard (Featured Anime Carousel) -->
+  <section class="hero-section" id="heroSection">
+    <div class="hero-backdrop" id="heroBackdrop"></div>
+    <div class="hero-overlay"></div>
+    <div class="hero-content" id="heroContent">
+      <div class="hero-badges">
+        <span class="badge badge-fire" id="heroFireBadge">🔥 FEATURED SHOW</span>
+        <span class="badge badge-status" id="heroStatusBadge">⚡ ONGOING</span>
+        <span class="badge badge-dropembed" id="heroFormatBadge">DROPEMBED MP4</span>
+        <span class="badge badge-dub" id="heroDubBadge">HINDI DUBBED</span>
+        <span class="badge badge-rating" id="heroRatingBadge">★ 8.7</span>
+      </div>
+      <h1 class="hero-title" id="heroTitle">Demon Slayer: Kimetsu no Yaiba</h1>
+      <h2 class="hero-title-hindi" id="heroTitleHindi">डेमन स्लेयर</h2>
+      <p class="hero-synopsis" id="heroSynopsis">Tanjiro Kamado's peaceful life is shattered when his family is slaughtered by a demon. His sister Nezuko is the sole survivor, but has been transformed into a demon herself.</p>
+      <div class="hero-meta">
+        <span id="heroSeasons">4 Seasons</span> • <span id="heroEpisodes">63 Episodes</span> • <span id="heroGenres">Action, Fantasy</span>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" id="heroWatchBtn">
+          <span class="btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </span>
+          Watch on DropEmbed
+        </button>
+        <button class="btn btn-secondary" id="heroDetailsBtn">
+          <span class="btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </span>
+          Details & Episodes
+        </button>
+      </div>
+    </div>
+
+    <!-- Hero Carousel Indicators -->
+    <div class="hero-carousel-nav" id="heroCarouselNav"></div>
+  </section>
+
+  <!-- Filter & Catalog Section -->
+  <main class="catalog-container">
+    <div class="catalog-header">
+      <div class="section-title-wrap">
+        <div class="provider-pill">
+          <span class="provider-dot"></span>
+          <span>DROPEMBED HIGH-SPEED CLOUD CATALOG</span>
+        </div>
+        <h2 class="section-title">Explore Anime Library</h2>
+        <span class="catalog-count-badge" id="catalogCount">Showing 284 Titles</span>
+      </div>
+
+      <!-- Filter Controls Bar -->
+      <div class="filter-bar">
+        <!-- Stream Format Filter -->
+        <div class="filter-group">
+          <span class="filter-label">Stream Status:</span>
+          <div class="filter-pills" id="formatFilters">
+            <button class="pill active" data-filter="format" data-val="ALL">All (284)</button>
+            <button class="pill pill-mp4" data-filter="format" data-val="MP4">🟢 100% DropEmbed MP4</button>
+            <button class="pill pill-tv" data-filter="type" data-val="TV">📺 TV Series</button>
+            <button class="pill pill-movie" data-filter="type" data-val="Movie">🎬 Movies</button>
+          </div>
+        </div>
+
+        <!-- Dub Type Filter -->
+        <div class="filter-group">
+          <span class="filter-label">Audio:</span>
+          <div class="filter-pills" id="dubFilters">
+            <button class="pill active" data-filter="dub" data-val="ALL">All Dubs</button>
+            <button class="pill" data-filter="dub" data-val="Official">🎙️ Official Dub</button>
+            <button class="pill" data-filter="dub" data-val="FanDub">🎧 Fan Dub</button>
+          </div>
+        </div>
+
+        <!-- Sort Select Dropdown -->
+        <div class="sort-group">
+          <span class="filter-label">Sort:</span>
+          <select id="sortSelect" class="sort-select">
+            <option value="rating">Top Rated (Default)</option>
+            <option value="episodes">Most Episodes</option>
+            <option value="title">Alphabetical (A-Z)</option>
+            <option value="latest">Recently Added</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Anime Cards Grid -->
+    <div class="anime-grid" id="animeGrid">
+      <!-- Dynamically populated via app.js -->
+      <div class="grid-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-bar" id="paginationBar" style="display:none;">
+      <button class="btn-page" id="prevPageBtn">← Previous</button>
+      <span class="page-indicator" id="pageIndicator">Page 1 of 6</span>
+      <button class="btn-page" id="nextPageBtn">Next →</button>
+    </div>
+  </main>
+
+  <!-- Player Modal & Episode Selector Drawer -->
+  <div class="modal-overlay" id="playerModal" style="display:none;">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="provider-tag">DROPEMBED PLAYER</span>
+          <h3 class="modal-title" id="modalAnimeTitle">Anime Title</h3>
+          <div class="modal-badges">
+            <span class="badge badge-status" id="modalStatusBadge">Ongoing</span>
+            <span class="badge badge-dub" id="modalDubBadge">Official</span>
+            <span class="badge badge-dropembed" id="modalFormatBadge">MP4 1080p</span>
+            <span class="badge badge-ep" id="modalEpIndicator">S01 E01</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-modal-action" id="theaterModeBtn" title="Toggle Theater Mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </button>
+          <button class="btn-modal-action" id="closeModalBtn" title="Close Modal (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <!-- Video Player Frame Area -->
+        <div class="player-wrapper" id="playerWrapper">
+          <div class="player-loader" id="playerLoader">
+            <div class="spinner"></div>
+            <span>Loading DropEmbed Cloud Stream...</span>
+          </div>
+          <iframe 
+            id="videoIframe" 
+            src="" 
+            allowfullscreen 
+            allow="autoplay; fullscreen; picture-in-picture"
+            frameborder="0"
+          ></iframe>
+        </div>
+
+        <!-- Player Controls Bar -->
+        <div class="player-toolbar">
+          <div class="toolbar-left">
+            <button class="btn-tool" id="prevEpBtn" title="Previous Episode">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2"/></svg>
+              Prev Ep
+            </button>
+            <span class="now-playing-label" id="currPlayingLabel">Playing Episode 1</span>
+            <button class="btn-tool" id="nextEpBtn" title="Next Episode">
+              Next Ep
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+          </div>
+
+          <div class="toolbar-right">
+            <div class="diagnostic-pill">
+              <span class="diag-dot dot-green" id="diagDot"></span>
+              <span id="diagTitle">Stream: DropEmbed Cloud MP4</span>
+              <span id="diagSub" class="diag-sub">ID: ...</span>
+            </div>
+            <a href="#" target="_blank" rel="noopener" class="btn-tool btn-source-link" id="openSourceBtn">
+              <span>Open on DropEmbed</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+            </a>
+            <button class="btn-tool" id="reloadPlayerBtn" title="Reload Video Stream">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              Reload
+            </button>
+          </div>
+        </div>
+
+        <!-- Seasons Tabs & Episodes Grid Drawer -->
+        <div class="episode-drawer">
+          <div class="drawer-header">
+            <h4 class="drawer-title">Episodes List</h4>
+            <div class="season-tabs" id="seasonTabs">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          <div class="episodes-grid" id="episodesGrid">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Anime Metadata Footer -->
+        <div class="modal-footer-meta">
+          <p class="modal-synopsis" id="modalSynopsis">Anime synopsis goes here...</p>
+          <div class="external-db-links">
+            <a href="#" target="_blank" rel="noopener" class="db-link" id="metaTmdbLink">TMDB: <strong id="metaTmdbId">-</strong></a>
+            <a href="#" target="_blank" rel="noopener" class="db-link" id="metaAnilistLink">AniList: <strong id="metaAnilistId">-</strong></a>
+            <a href="#" target="_blank" rel="noopener" class="db-link" id="metaMalLink">MAL: <strong id="metaMalId">-</strong></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span class="footer-logo">⚡ DROPEMBED HINDI FLEET</span>
+        <span class="footer-sub">5,633 Episodes live • Powered by DropEmbed Remote Cloud Ingest & MySQL</span>
+      </div>
+      <div class="footer-right">
+        <a href="/fleet" class="footer-link">🛰️ Fleet Dashboard</a>
+        <a href="http://localhost:3000" target="_blank" class="footer-link">Vidara Portal</a>
+        <a href="https://dropembed.com" target="_blank" class="footer-link">DropEmbed.com</a>
+        <a href="https://github.com/Zayrix-bit/anime-dropembed-fleet" target="_blank" class="footer-link">GitHub Repository</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
