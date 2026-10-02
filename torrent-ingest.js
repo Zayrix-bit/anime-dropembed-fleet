@@ -432,6 +432,23 @@ async function updateEpisodeInDb(pool, tmdbId, season, episode, filecode, animeT
     `, [tmdbId, season, episode, animeTitle || `Anime TMDB ${tmdbId}`, filecode, embedUrl, watchUrl]);
     console.log(`   💾 Database row INSERTED (S${season}E${episode} -> ${filecode})`);
   }
+
+  // Auto-update total_episodes and total_seasons in series table
+  try {
+    const [counts] = await pool.execute(
+      'SELECT COUNT(*) as ep_cnt, MAX(season) as max_s FROM dropembed_anime_episodes WHERE tmdb_id = ?',
+      [tmdbId]
+    );
+    if (counts.length > 0) {
+      await pool.execute(
+        'UPDATE dropembed_anime_series SET total_episodes = GREATEST(total_episodes, ?), total_seasons = GREATEST(total_seasons, ?) WHERE tmdb_id = ?',
+        [counts[0].ep_cnt, counts[0].max_s, tmdbId]
+      );
+      console.log(`   📊 Series stats updated: total_episodes=${counts[0].ep_cnt}, total_seasons=${counts[0].max_s}`);
+    }
+  } catch (err) {
+    console.warn(`   ⚠️ Could not update series counts: ${err.message}`);
+  }
 }
 
 // ── MAIN RUNNER ──
