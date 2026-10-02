@@ -385,21 +385,56 @@ async function main() {
 
   await initLocalServerAndTunnel();
 
-  const pool = mysql.createPool({
-    host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD, database: DB_NAME,
-    waitForConnections: true, connectionLimit: 1, enableKeepAlive: true, keepAliveInitialDelay: 10000
-  });
+  // Stagger shard starts to prevent MySQL connection spikes on shared database
+  const initialDelay = SHARD_INDEX * 4000;
+  if (initialDelay > 0) {
+    console.log(`⏳ Shard ${SHARD_INDEX} staggering start: waiting ${initialDelay / 1000}s...`);
+    await sleep(initialDelay);
+  }
 
-  const [allEpisodes] = await pool.execute(`
-    SELECT 
-      d.id, d.anime_title, d.season, d.episode, d.anilist_id, d.tmdb_id, d.stream_type,
-      d.format, a.embed_url as orig_embed, a.quality as orig_quality
-    FROM dropembed_anime_episodes d
-    LEFT JOIN anime_episodes a 
-      ON d.anilist_id = a.anilist_id AND d.season = a.season AND d.episode = a.episode
-    WHERE d.stream_type IN ('ERROR', 'HLS_ERROR')
-    ORDER BY d.id ASC
-  `);
+  let pool = null;
+  for (let retry = 1; retry <= 15; retry++) {
+    try {
+      pool = mysql.createPool({
+        host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD, database: DB_NAME,
+        waitForConnections: true, connectionLimit: 1, enableKeepAlive: true, keepAliveInitialDelay: 10000
+      });
+      await pool.query('SELECT 1');
+      break;
+    } catch (conErr) {
+      if (conErr.code === 'ER_CON_COUNT_ERROR' && retry < 15) {
+        const backoff = 3000 + Math.floor(Math.random() * 4000);
+        console.warn(`⚠️ MySQL connection capacity reached (attempt ${retry}/15). Waiting ${(backoff/1000).toFixed(1)}s...`);
+        await sleep(backoff);
+      } else {
+        throw conErr;
+      }
+    }
+  }
+
+  let allEpisodes = [];
+  for (let qTry = 1; qTry <= 10; qTry++) {
+    try {
+      const [rows] = await pool.execute(`
+        SELECT 
+          d.id, d.anime_title, d.season, d.episode, d.anilist_id, d.tmdb_id, d.stream_type,
+          d.format, a.embed_url as orig_embed, a.quality as orig_quality
+        FROM dropembed_anime_episodes d
+        LEFT JOIN anime_episodes a 
+          ON d.anilist_id = a.anilist_id AND d.season = a.season AND d.episode = a.episode
+        WHERE d.stream_type IN ('ERROR', 'HLS_ERROR')
+        ORDER BY d.id ASC
+      `);
+      allEpisodes = rows;
+      break;
+    } catch (qErr) {
+      if (qErr.code === 'ER_CON_COUNT_ERROR' && qTry < 10) {
+        await sleep(3000 + Math.floor(Math.random() * 3000));
+      } else {
+        throw qErr;
+      }
+    }
+  }
 
   const episodes = allEpisodes.filter((_, i) => i % TOTAL_SHARDS === SHARD_INDEX);
   const limited = BATCH_SIZE > 0 ? episodes.slice(0, BATCH_SIZE) : episodes;
@@ -478,12 +513,23 @@ async function main() {
       }
 
       if (dropembedResult?.videoId) {
-        await pool.execute(
-          `UPDATE dropembed_anime_episodes 
-           SET stream_type = 'MP4', quality = ?, filecode = ?, embed_url = ?, watch_url = ?, updated_at = NOW() 
-           WHERE id = ?`,
-          [finalQuality, dropembedResult.videoId, dropembedResult.embedUrl, dropembedResult.watchUrl, ep.id]
-        );
+        for (let upTry = 1; upTry <= 10; upTry++) {
+          try {
+            await pool.execute(
+              `UPDATE dropembed_anime_episodes 
+               SET stream_type = 'MP4', quality = ?, filecode = ?, embed_url = ?, watch_url = ?, updated_at = NOW() 
+               WHERE id = ?`,
+              [finalQuality, dropembedResult.videoId, dropembedResult.embedUrl, dropembedResult.watchUrl, ep.id]
+            );
+            break;
+          } catch (upErr) {
+            if (upTry < 10) {
+              await sleep(2000 + Math.floor(Math.random() * 3000));
+            } else {
+              throw upErr;
+            }
+          }
+        }
         console.log(`   ✅ SUCCESS: DropEmbed ID = ${dropembedResult.videoId}`);
         recovered++;
       }

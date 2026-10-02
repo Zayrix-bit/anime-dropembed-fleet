@@ -16,8 +16,9 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [0, 1, 2]
 
     steps:
       - name: 📥 Checkout
@@ -51,5 +52,5 @@ jobs:
           DB_NAME: ${{ secrets.DB_NAME }}
           DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY }}
           SHARD_INDEX: ${{ matrix.shard }}
-          TOTAL_SHARDS: 10
+          TOTAL_SHARDS: 3
           BATCH_SIZE: ${{ inputs.batch_size }}
