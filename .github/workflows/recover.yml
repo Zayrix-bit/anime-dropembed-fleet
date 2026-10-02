@@ -8,17 +8,12 @@ on:
         required: false
         type: string
         default: '0'
-      concurrency:
-        description: 'Parallel segment downloads'
-        required: false
-        type: string
-        default: '20'
 
 jobs:
   recover:
     name: Recovery Shard ${{ matrix.shard }}
-    runs-on: ubuntu-22.04
-    timeout-minutes: 350
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -34,15 +29,10 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: 🔧 Verify / Install Native ffmpeg
-        run: |
-          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
-          ffmpeg -version | head -n 2
-
       - name: 📦 Install Dependencies
         run: npm install
 
-      - name: 🚀 Run Recovery Shard
+      - name: ⚡ Run Recovery Shard (Direct Remote Ingest)
         run: node recover-errors.js
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
@@ -54,4 +44,3 @@ jobs:
           SHARD_INDEX: ${{ matrix.shard }}
           TOTAL_SHARDS: 10
           BATCH_SIZE: ${{ inputs.batch_size }}
-          SEGMENT_CONCURRENCY: ${{ inputs.concurrency }}
