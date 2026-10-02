@@ -455,18 +455,30 @@ app.get('/api/anime/:tmdbId', async (req, res) => {
       };
     });
 
-    // Group episodes by season
+    // Group episodes by season & guarantee strictly unique episodes per season
     const seasons = {};
     for (const ep of formattedEpisodes) {
       if (!seasons[ep.season]) seasons[ep.season] = [];
-      seasons[ep.season].push(ep);
+      const existingIdx = seasons[ep.season].findIndex(x => x.episode === ep.episode);
+      if (existingIdx >= 0) {
+        // If current ep is playable and previous was not, or current is Official, replace
+        if (!seasons[ep.season][existingIdx].is_playable && ep.is_playable) {
+          seasons[ep.season][existingIdx] = ep;
+        } else if (ep.dub_type === 'Official' && seasons[ep.season][existingIdx].dub_type !== 'Official') {
+          seasons[ep.season][existingIdx] = ep;
+        }
+      } else {
+        seasons[ep.season].push(ep);
+      }
     }
+
+    const deduplicatedEpisodes = Object.values(seasons).flat();
 
     res.json({
       success: true,
       anime,
-      totalEpisodes: formattedEpisodes.length,
-      playableEpisodes: formattedEpisodes.filter(e => e.is_playable).length,
+      totalEpisodes: deduplicatedEpisodes.length,
+      playableEpisodes: deduplicatedEpisodes.filter(e => e.is_playable).length,
       seasonsCount: Object.keys(seasons).length,
       seasons
     });

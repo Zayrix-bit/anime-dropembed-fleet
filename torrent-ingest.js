@@ -527,6 +527,14 @@ async function updateEpisodeInDb(pool, tmdbId, season, episode, filecode, animeT
       WHERE id = ?
     `, [filecode, embedUrl, watchUrl, existing[0].id]);
     console.log(`   💾 Database row #${existing[0].id} UPDATED (S${season}E${episode} -> ${filecode})`);
+
+    // Ensure NO duplicates ever exist for the same season and episode
+    if (existing.length > 1) {
+      const extraIds = existing.slice(1).map(x => x.id);
+      const placeholders = extraIds.map(() => '?').join(',');
+      await pool.execute(`DELETE FROM dropembed_anime_episodes WHERE id IN (${placeholders})`, extraIds);
+      console.log(`   🧹 Cleaned up ${extraIds.length} duplicate row(s) for S${season}E${episode}`);
+    }
   } else {
     await pool.execute(`
       INSERT INTO dropembed_anime_episodes
