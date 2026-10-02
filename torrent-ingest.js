@@ -227,6 +227,7 @@ async function downloadTorrent(rawInput) {
     '--seed-time=0',
     '--max-overall-upload-limit=1K',
     '--summary-interval=5',
+    '--bt-stop-timeout=120',
     '--bt-tracker=' + trackers,
     '--dir=' + DOWNLOADS_DIR,
     targetArg
