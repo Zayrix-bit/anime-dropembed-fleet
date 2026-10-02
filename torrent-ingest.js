@@ -313,18 +313,60 @@ function extractEpisodeInfo(filename, defaultSeason = 1, defaultEpisode = 'AUTO'
   };
 }
 
+// ── Intelligent Hindi Audio Stream Detection ──
+function getBestAudioStream(inputPath) {
+  try {
+    const res = spawnSync('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'stream=index,codec_type:stream_tags=language,title',
+      '-of', 'json',
+      inputPath
+    ]);
+    if (res.status === 0) {
+      const data = JSON.parse(res.stdout.toString());
+      const audioStreams = (data.streams || []).filter(s => s.codec_type === 'audio');
+      
+      // 1. Look for Hindi language tag or title
+      const hindiStream = audioStreams.find(s => {
+        const lang = (s.tags?.language || '').toLowerCase();
+        const title = (s.tags?.title || '').toLowerCase();
+        return lang.includes('hin') || title.includes('hindi');
+      });
+
+      if (hindiStream) {
+        console.log(`   🎙️ Found HINDI Audio Stream at stream index ${hindiStream.index}!`);
+        return hindiStream.index;
+      }
+
+      // 2. Fallback to first audio stream
+      if (audioStreams.length > 0) {
+        return audioStreams[0].index;
+      }
+    }
+  } catch (err) {
+    console.warn(`   ⚠️ ffprobe check warning: ${err.message}`);
+  }
+  return null;
+}
+
 // ── Fast Remux to Streamable Web MP4 ──
 async function remuxToFastWebMp4(inputPath, outputPath) {
-  console.log(`   ⚙️ Fast Remuxing to MP4 (copy video, audio aac): ${path.basename(inputPath)}`);
-  const args = [
-    '-y',
-    '-i', inputPath,
+  console.log(`   ⚙️ Fast Remuxing to MP4: ${path.basename(inputPath)}`);
+  
+  const preferredAudioIndex = getBestAudioStream(inputPath);
+  const args = ['-y', '-i', inputPath];
+
+  if (preferredAudioIndex !== null) {
+    args.push('-map', '0:v:0', '-map', `0:${preferredAudioIndex}`);
+  }
+
+  args.push(
     '-c:v', 'copy',
     '-c:a', 'aac',
     '-b:a', '128k',
     '-movflags', '+faststart',
     outputPath
-  ];
+  );
 
   const res = spawnSync('ffmpeg', args, { timeout: 600000 });
   if (res.status === 0 && fs.existsSync(outputPath)) {
