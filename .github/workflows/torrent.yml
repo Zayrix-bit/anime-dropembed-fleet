@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       magnet:
-        description: 'Nyaa.si URL (e.g. https://nyaa.si/view/2168567), Magnet Link, or .torrent URL'
+        description: 'Tsukihime URL (e.g. tsukihime.org/search?q=...), Nyaa URL, Magnet Link, or .torrent'
         required: true
         type: string
       tmdb_id:

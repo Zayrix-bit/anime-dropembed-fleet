@@ -107,7 +107,68 @@ async function resolveTorrentSource(input) {
     return { type: 'magnet', source: trimmed };
   }
 
-  // Case 2: Nyaa.si / Sukebei View URL (e.g., https://nyaa.si/view/2168567)
+  // Case 2: Tsukihime Search or Torrent URL (e.g., https://tsukihime.org/search?q=... or https://tsukihime.org/torrent/...)
+  const isTsukihime = trimmed.includes('tsukihime.org');
+  if (isTsukihime) {
+    console.log(`🌙 Detected Tsukihime URL: ${trimmed}`);
+    try {
+      const parsedUrl = new URL(trimmed);
+
+      // Sub-case 2A: Search URL (e.g. /search?q=...)
+      if (parsedUrl.pathname.includes('/search')) {
+        const query = parsedUrl.searchParams.get('q') || '';
+        console.log(`   Searching Tsukihime API for query: "${query}"...`);
+        const searchApi = `https://api.tsukihime.org/v1/search/torrents?q=${encodeURIComponent(query)}&limit=25`;
+        const res = await fetch(searchApi, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+        const data = await res.json();
+        const results = data.results || [];
+
+        if (results.length > 0) {
+          let chosen = null;
+          if (TARGET_EPISODE && TARGET_EPISODE !== 'AUTO') {
+            const padEp = String(TARGET_EPISODE).padStart(2, '0');
+            chosen = results.find(r => {
+              const name = (r.name || '').toLowerCase();
+              return name.includes('e' + padEp) || name.includes(' - ' + padEp) || name.includes('e' + TARGET_EPISODE);
+            });
+          }
+          if (!chosen) chosen = results[0];
+
+          console.log(`   ✅ Tsukihime matched: "${chosen.name}"`);
+          const magnet = `magnet:?xt=urn:btih:${chosen.btih}&dn=${encodeURIComponent(chosen.name)}`;
+          return { type: 'magnet', source: magnet };
+        } else {
+          console.warn(`   ⚠️ No results found on Tsukihime API for "${query}".`);
+        }
+      }
+
+      // Sub-case 2B: Single Torrent / Release URL (e.g. /torrent/{id} or /torrents/{id})
+      const torrentIdMatch = parsedUrl.pathname.match(/\/(?:torrent|torrents|release|releases)\/(\d+)/i);
+      if (torrentIdMatch) {
+        const tid = torrentIdMatch[1];
+        console.log(`   Fetching Tsukihime single torrent ID: ${tid}...`);
+        const res = await fetch(`https://api.tsukihime.org/v1/torrents/${tid}`, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+        if (res.ok) {
+          const t = await res.json();
+          if (t && t.btih) {
+            console.log(`   ✅ Retrieved BTIH: ${t.btih} ("${t.name}")`);
+            const magnet = `magnet:?xt=urn:btih:${t.btih}&dn=${encodeURIComponent(t.name)}`;
+            return { type: 'magnet', source: magnet };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`   ⚠️ Error parsing Tsukihime URL: ${err.message}`);
+    }
+  }
+
+  // Case 3: Nyaa.si / Sukebei View URL (e.g., https://nyaa.si/view/2168567)
   const nyaaMatch = trimmed.match(/(?:nyaa\.si|sukebei\.nyaa\.si|nyaa\.land)\/view\/(\d+)/i);
   if (nyaaMatch) {
     const nyaaId = nyaaMatch[1];
