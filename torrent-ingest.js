@@ -1,7 +1,6 @@
 import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
-import http from 'http';
 import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
@@ -36,69 +35,6 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 if (!fs.existsSync(PROCESSED_DIR)) fs.mkdirSync(PROCESSED_DIR, { recursive: true });
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// ── Local HTTP Server + Cloudflare Quick Tunnel ──
-let tunnelUrl = null;
-let tunnelProc = null;
-const HTTP_PORT = 8990;
-
-const fileServer = http.createServer((req, res) => {
-  const cleanUrl = req.url.split('?')[0].replace(/^\/+/, '');
-  const filePath = path.join(PROCESSED_DIR, cleanUrl);
-
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const stat = fs.statSync(filePath);
-    res.writeHead(200, {
-      'Content-Type': 'video/mp4',
-      'Content-Length': stat.size,
-      'Accept-Ranges': 'bytes'
-    });
-    fs.createReadStream(filePath).pipe(res);
-  } else {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('File not found');
-  }
-});
-
-function initLocalServerAndTunnel() {
-  return new Promise((resolve) => {
-    fileServer.listen(HTTP_PORT, '0.0.0.0', () => {
-      console.log(`📡 Local HTTP server listening on port ${HTTP_PORT}`);
-
-      try {
-        const proc = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${HTTP_PORT}`], {
-          stdio: ['ignore', 'pipe', 'pipe']
-        });
-        tunnelProc = proc;
-
-        let resolved = false;
-        const parseLine = (chunk) => {
-          const str = chunk.toString();
-          const match = str.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-          if (match && !resolved) {
-            resolved = true;
-            tunnelUrl = match[0];
-            console.log(`🌐 Cloudflare Quick Tunnel ready: ${tunnelUrl}`);
-            resolve(tunnelUrl);
-          }
-        };
-
-        proc.stdout.on('data', parseLine);
-        proc.stderr.on('data', parseLine);
-
-        setTimeout(() => {
-          if (!resolved) {
-            console.log(`ℹ️ Cloudflare tunnel timeout (will fallback to direct upload if possible)`);
-            resolve(null);
-          }
-        }, 10000);
-      } catch (err) {
-        console.log(`ℹ️ cloudflared not available: ${err.message}`);
-        resolve(null);
-      }
-    });
-  });
-}
 
 function ensureTrackers(magnetUri) {
   const extraTrackers = [
@@ -537,40 +473,6 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
     console.warn(`   ⚠️ Direct form upload failed: ${JSON.stringify(json)}`);
   }
 
-  // Strategy 3: If > 95 MB, remote upload via Cloudflare Quick Tunnel
-  if (tunnelUrl) {
-    console.log(`   🌐 Strategy 3: Remote Upload via Tunnel URL: ${tunnelUrl}/${path.basename(filePath)} (${sizeMb} MB)...`);
-    const publicUrl = `${tunnelUrl}/${path.basename(filePath)}`;
-
-    const res = await fetch(`${DROPEMBED_API}/videos/remote-upload`, {
-      method: 'POST',
-      headers: {
-        'X-API-Key': DROPEMBED_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ urls: [publicUrl], folder_id: DROPEMBED_FOLDER_ID || 0 })
-    });
-
-    const json = await res.json();
-    const videoId = json?.tasks?.[0]?.video_id || json?.video_id || json?.data?.[0]?.id;
-
-    if (videoId) {
-      if (title) {
-        try {
-          await fetch(`${DROPEMBED_API}/videos/${videoId}`, {
-            method: 'PATCH',
-            headers: {
-              'X-API-Key': DROPEMBED_API_KEY,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ title })
-          });
-        } catch {}
-      }
-      return videoId;
-    }
-    throw new Error(`Remote upload returned invalid response: ${JSON.stringify(json)}`);
-  }
 
   throw new Error(`All upload strategies failed for ${filePath}.`);
 }
@@ -666,8 +568,6 @@ async function main() {
     console.warn(`Warning reading series title: ${err.message}`);
   }
 
-  // 1. Start Local File Server & Tunnel
-  await initLocalServerAndTunnel();
 
   // 2. Download Torrent via aria2c
   await downloadTorrent(MAGNET_URI);
@@ -749,8 +649,6 @@ async function main() {
   console.log(`🏁 INGESTION COMPLETE: ${processedCount} / ${videoFiles.length} episodes processed!`);
   console.log(`======================================================\n`);
 
-  if (tunnelProc) tunnelProc.kill('SIGTERM');
-  fileServer.close();
   await pool.end();
   process.exit(0);
 }

@@ -45,16 +45,13 @@ jobs:
       - name: 📦 Install Node Dependencies
         run: npm install
 
-      - name: 🛠️ Install aria2, FFmpeg, and Cloudflared
+      - name: 🛠️ Install aria2 and FFmpeg
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y aria2 ffmpeg
-          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-          sudo chmod +x /usr/local/bin/cloudflared
           echo "=== TOOL VERSIONS ==="
           aria2c --version | head -n 1
           ffmpeg -version | head -n 1
-          cloudflared --version
 
       - name: 🚀 Run Torrent to DropEmbed Pipeline
         run: node torrent-ingest.js
