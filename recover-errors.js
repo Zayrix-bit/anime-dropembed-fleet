@@ -19,7 +19,7 @@ const DROPEMBED_API = 'https://dropembed.com/api';
 const SHARD_INDEX = parseInt(process.env.SHARD_INDEX || '0', 10);
 const TOTAL_SHARDS = parseInt(process.env.TOTAL_SHARDS || '1', 10);
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '0', 10); // 0 = unlimited
-const CONCURRENCY = parseInt(process.env.SEGMENT_CONCURRENCY || '5', 10);
+const CONCURRENCY = parseInt(process.env.SEGMENT_CONCURRENCY || '20', 10);
 
 const TEMP_DIR = path.join(__dirname, 'temp', 'recovery');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -82,7 +82,7 @@ async function downloadVidaraToMp4(hlsUrl, outputMp4Path) {
       const segUrl = seg.startsWith('http') ? seg : baseUrl + seg;
       for (let retry = 0; retry < 3; retry++) {
         try {
-          const res = await fetch(segUrl, { headers });
+          const res = await fetch(segUrl, { headers, signal: AbortSignal.timeout(25000) });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return Buffer.from(await res.arrayBuffer());
         } catch (e) {
@@ -153,8 +153,7 @@ async function downloadVidaraToMp4(hlsUrl, outputMp4Path) {
 async function uploadToDropEmbed(filePath, title, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const fileBuffer = fs.readFileSync(filePath);
-      const blob = new Blob([fileBuffer], { type: 'video/mp4' });
+      const blob = await fs.openAsBlob(filePath, { type: 'video/mp4' });
       const formData = new FormData();
       formData.append('video', blob, path.basename(filePath));
       if (title) formData.append('title', title);
