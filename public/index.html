@@ -45,8 +45,12 @@
       <div class="nav-stats" id="navStats">
         <a href="/fleet" class="stat-pill fleet-nav-pill">
           <span class="stat-dot dot-live-pulse"></span>
-          <span>🛰️ DropEmbed Fleet Hub</span>
+          <span>🛰️ Fleet Hub</span>
         </a>
+        <button class="stat-pill torrent-nav-pill" id="openTorrentModalBtn">
+          <span class="stat-dot dot-live-pulse" style="background:#00f2fe;box-shadow:0 0 10px #00f2fe;"></span>
+          <span>🧲 Torrent Cloud Ingest</span>
+        </button>
         <div class="stat-pill">
           <span class="stat-dot dot-green"></span>
           <strong id="statMp4">5,633</strong> MP4
@@ -266,6 +270,112 @@
             <a href="#" target="_blank" rel="noopener" class="db-link" id="metaTmdbLink">TMDB: <strong id="metaTmdbId">-</strong></a>
             <a href="#" target="_blank" rel="noopener" class="db-link" id="metaAnilistLink">AniList: <strong id="metaAnilistId">-</strong></a>
             <a href="#" target="_blank" rel="noopener" class="db-link" id="metaMalLink">MAL: <strong id="metaMalId">-</strong></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cloud Torrent Ingestion Fleet Modal -->
+  <div class="modal-overlay" id="torrentModal" style="display:none;">
+    <div class="modal-card modal-torrent">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 class="modal-title">🧲 Cloud Torrent Ingest Fleet</h2>
+          <span class="modal-subtitle">Auto-Search Tsukihime/Nyaa & Remote Ingest Directly to DropEmbed (0% Local Data Used)</span>
+        </div>
+        <button class="modal-close-btn" id="closeTorrentModalBtn">✕</button>
+      </div>
+
+      <!-- Navigation Tabs inside Torrent Modal -->
+      <div class="torrent-tabs">
+        <button class="torrent-tab-btn active" data-tab="missing-tab">
+          <span>⚠️ Missing Catalog Queue</span>
+          <span class="badge-count" id="torrentMissingCount">44</span>
+        </button>
+        <button class="torrent-tab-btn" data-tab="direct-tab">
+          <span>🚀 Instant 1-Click Ingest</span>
+        </button>
+        <button class="torrent-tab-btn" data-tab="runs-tab">
+          <span>📡 Cloud Runner Status</span>
+          <span class="pulse-indicator"></span>
+        </button>
+      </div>
+
+      <div class="torrent-body">
+        <!-- Tab 1: Missing Catalog Queue -->
+        <div class="torrent-pane active" id="pane-missing-tab">
+          <div class="pane-header-bar">
+            <div>
+              <h3>Anime Shows with Missing/Error Episodes</h3>
+              <p>Click "Find Torrents" to auto-search Tsukihime for official Multi-Audio/Hindi Dub torrents.</p>
+            </div>
+            <button class="btn-tool" id="refreshMissingBtn">🔄 Refresh Queue</button>
+          </div>
+          <div class="missing-anime-list" id="missingAnimeList">
+            <div class="torrent-loading">Loading missing catalog queue...</div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Direct / Magnet Ingest -->
+        <div class="torrent-pane" id="pane-direct-tab">
+          <form id="directIngestForm" class="direct-ingest-form">
+            <div class="form-row">
+              <label for="ingestMagnetInput">
+                <strong>Torrent Source (Magnet, Tsukihime URL, Nyaa URL, or direct MP4/MKV):</strong>
+              </label>
+              <textarea id="ingestMagnetInput" rows="3" placeholder="magnet:?xt=urn:btih:... OR https://tsukihime.org/search?q=... OR https://nyaa.si/view/... OR direct video link" required></textarea>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="ingestTmdbId"><strong>TMDB ID:</strong></label>
+                <input type="number" id="ingestTmdbId" placeholder="e.g. 76121 (DARLING in the FRANXX)" required>
+              </div>
+              <div class="form-group">
+                <label for="ingestSeason"><strong>Season:</strong></label>
+                <input type="number" id="ingestSeason" value="1" min="1" required>
+              </div>
+              <div class="form-group">
+                <label for="ingestEpisode"><strong>Episode:</strong></label>
+                <input type="text" id="ingestEpisode" value="AUTO" placeholder="AUTO or 1, 2, 3...">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn-launch-ingest" id="launchIngestBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span>🚀 Launch Cloud Runner Ingestion</span>
+              </button>
+              <span class="launch-hint">Smart-skip will automatically skip existing playable episodes if feeding a batch pack!</span>
+            </div>
+            <div id="ingestResultMsg" class="ingest-result-msg" style="display:none;"></div>
+          </form>
+
+          <!-- Integrated Tsukihime Quick Search Box -->
+          <div class="tsukihime-search-box">
+            <h4>🔎 Search Tsukihime Anime Database</h4>
+            <div class="tsukihime-input-group">
+              <input type="text" id="tsukihimeQueryInput" placeholder="Search Tsukihime for anime (e.g. DARLING in the FRANXX hindi, Pokemon, Wistoria)...">
+              <button class="btn-tsukihime-search" id="tsukihimeSearchBtn">Search Torrents</button>
+            </div>
+            <div class="tsukihime-results" id="tsukihimeResultsList">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Cloud Runner Status -->
+        <div class="torrent-pane" id="pane-runs-tab">
+          <div class="pane-header-bar">
+            <div>
+              <h3>Active & Recent GitHub Actions Ingestion Jobs</h3>
+              <p>Real-time status of remote download, audio extraction, and DropEmbed uploads.</p>
+            </div>
+            <button class="btn-tool" id="refreshRunsBtn">🔄 Refresh Status</button>
+          </div>
+          <div class="runs-list" id="cloudRunsList">
+            <div class="torrent-loading">Checking runner status...</div>
           </div>
         </div>
       </div>

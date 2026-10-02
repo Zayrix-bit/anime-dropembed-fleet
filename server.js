@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -471,6 +472,94 @@ app.get('/api/anime/:tmdbId', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Torrent Engine APIs: Missing Series, Tsukihime Search, Launch & Run Status
+app.get('/api/torrent/missing', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT 
+        s.tmdb_id,
+        s.title,
+        s.title_hindi,
+        s.poster_url,
+        s.format,
+        s.total_episodes,
+        COUNT(e.id) as actual_episodes,
+        SUM(CASE WHEN e.stream_type = 'MP4' AND e.filecode IS NOT NULL AND LENGTH(e.filecode) > 6 THEN 1 ELSE 0 END) as playable_episodes,
+        SUM(CASE WHEN e.stream_type != 'MP4' OR e.filecode IS NULL OR LENGTH(e.filecode) <= 6 THEN 1 ELSE 0 END) as missing_episodes
+      FROM dropembed_anime_series s
+      JOIN dropembed_anime_episodes e ON s.tmdb_id = e.tmdb_id
+      GROUP BY s.id
+      HAVING missing_episodes > 0
+      ORDER BY missing_episodes ASC, s.total_episodes DESC
+    `);
+    res.json({ success: true, count: rows.length, series: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/torrent/search', async (req, res) => {
+  try {
+    const q = req.query.q || '';
+    if (!q.trim()) return res.json({ success: true, results: [] });
+    const url = `https://api.tsukihime.org/v1/search/torrents?q=${encodeURIComponent(q.trim())}&limit=20`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return res.json({ success: true, results: [] });
+    const json = await response.json();
+    const results = (json.results || []).map(t => {
+      const hasHindi = (t.audiolangs && t.audiolangs.includes('hi')) || /hindi/i.test(t.name);
+      const trackers = [
+        'http://nyaa.tracker.wf:7777/announce',
+        'udp://open.stealth.si:80/announce',
+        'udp://tracker.opentrackr.org:1337/announce',
+        'udp://exodus.desync.com:6969/announce',
+        'udp://tracker.torrent.eu.org:451/announce'
+      ].map(tr => `&tr=${encodeURIComponent(tr)}`).join('');
+      const magnet = `magnet:?xt=urn:btih:${t.btih}&dn=${encodeURIComponent(t.name)}${trackers}`;
+      return {
+        id: t.id,
+        name: t.name,
+        btih: t.btih,
+        magnet,
+        size_mb: (t.totalsize / (1024 * 1024)).toFixed(1),
+        has_hindi: hasHindi,
+        audiolangs: t.audiolangs || [],
+        filecount: t.filecount,
+        group: t.group?.name
+      };
+    });
+    res.json({ success: true, query: q, count: results.length, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/torrent/launch', (req, res) => {
+  try {
+    const { magnet, tmdb_id, season = '1', episode = 'AUTO' } = req.body;
+    if (!magnet || !tmdb_id) {
+      return res.status(400).json({ success: false, error: 'magnet and tmdb_id are required' });
+    }
+    // Launch via gh CLI
+    const cmd = `gh workflow run torrent.yml -f magnet="${magnet.replace(/"/g, '\\"')}" -f tmdb_id="${tmdb_id}" -f season="${season}" -f episode="${episode}"`;
+    const output = execSync(cmd, { encoding: 'utf8' });
+    res.json({ success: true, message: 'Workflow launched on cloud runner', output: output.trim() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/torrent/runs', (req, res) => {
+  try {
+    const cmd = 'gh run list --workflow=torrent.yml -L 10 --json databaseId,status,conclusion,name,createdAt,url';
+    const output = execSync(cmd, { encoding: 'utf8' });
+    const runs = JSON.parse(output || '[]');
+    res.json({ success: true, runs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, runs: [] });
   }
 });
 

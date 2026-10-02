@@ -96,6 +96,7 @@ const metaMalId = document.getElementById('metaMalId');
    ============================================================================== */
 async function initApp() {
   setupEventListeners();
+  initTorrentFleet();
   await loadStats();
   await loadFeatured();
   await loadCatalog();
@@ -658,6 +659,260 @@ function setupEventListeners() {
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ==============================================================================
+   7. CLOUD TORRENT FLEET CONTROLLER
+   ============================================================================== */
+const torrentModal = document.getElementById('torrentModal');
+const openTorrentModalBtn = document.getElementById('openTorrentModalBtn');
+const closeTorrentModalBtn = document.getElementById('closeTorrentModalBtn');
+const missingAnimeList = document.getElementById('missingAnimeList');
+const directIngestForm = document.getElementById('directIngestForm');
+const ingestMagnetInput = document.getElementById('ingestMagnetInput');
+const ingestTmdbId = document.getElementById('ingestTmdbId');
+const ingestSeason = document.getElementById('ingestSeason');
+const ingestEpisode = document.getElementById('ingestEpisode');
+const launchIngestBtn = document.getElementById('launchIngestBtn');
+const ingestResultMsg = document.getElementById('ingestResultMsg');
+const tsukihimeQueryInput = document.getElementById('tsukihimeQueryInput');
+const tsukihimeSearchBtn = document.getElementById('tsukihimeSearchBtn');
+const tsukihimeResultsList = document.getElementById('tsukihimeResultsList');
+const cloudRunsList = document.getElementById('cloudRunsList');
+const refreshMissingBtn = document.getElementById('refreshMissingBtn');
+const refreshRunsBtn = document.getElementById('refreshRunsBtn');
+const torrentMissingCount = document.getElementById('torrentMissingCount');
+
+function initTorrentFleet() {
+  if (!openTorrentModalBtn) return;
+
+  openTorrentModalBtn.addEventListener('click', () => {
+    torrentModal.style.display = 'flex';
+    loadMissingQueue();
+  });
+
+  if (closeTorrentModalBtn) {
+    closeTorrentModalBtn.addEventListener('click', () => {
+      torrentModal.style.display = 'none';
+    });
+  }
+
+  // Tab switching
+  document.querySelectorAll('.torrent-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.torrent-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.torrent-pane').forEach(p => p.classList.remove('active'));
+      const targetTab = btn.getAttribute('data-tab');
+      btn.classList.add('active');
+      const pane = document.getElementById(`pane-${targetTab}`);
+      if (pane) pane.classList.add('active');
+      if (targetTab === 'missing-tab') loadMissingQueue();
+      if (targetTab === 'runs-tab') loadCloudRuns();
+    });
+  });
+
+  if (refreshMissingBtn) refreshMissingBtn.addEventListener('click', loadMissingQueue);
+  if (refreshRunsBtn) refreshRunsBtn.addEventListener('click', loadCloudRuns);
+
+  // Search Tsukihime
+  if (tsukihimeSearchBtn) {
+    tsukihimeSearchBtn.addEventListener('click', () => {
+      const q = tsukihimeQueryInput.value.trim();
+      if (q) searchTsukihimeTorrents(q);
+    });
+  }
+  if (tsukihimeQueryInput) {
+    tsukihimeQueryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        tsukihimeSearchBtn.click();
+      }
+    });
+  }
+
+  // Direct Ingest Submit
+  if (directIngestForm) {
+    directIngestForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      launchIngestBtn.disabled = true;
+      launchIngestBtn.innerHTML = '<span>⏳ Launching Cloud Runner...</span>';
+      ingestResultMsg.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/torrent/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            magnet: ingestMagnetInput.value.trim(),
+            tmdb_id: ingestTmdbId.value.trim(),
+            season: ingestSeason.value.trim() || '1',
+            episode: ingestEpisode.value.trim() || 'AUTO'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          ingestResultMsg.className = 'ingest-result-msg msg-success';
+          ingestResultMsg.innerHTML = `✅ <strong>Workflow Launched on GitHub Cloud Runner!</strong><br>${escapeHtml(data.message || '')}<br><a href="${data.output}" target="_blank" style="color:#00f2fe;font-weight:700;">Open Run on GitHub ↗</a>`;
+          ingestResultMsg.style.display = 'block';
+
+          // Auto-switch to runs tab after 1.5 seconds
+          setTimeout(() => {
+            const runsTabBtn = document.querySelector('[data-tab="runs-tab"]');
+            if (runsTabBtn) runsTabBtn.click();
+          }, 1500);
+        } else {
+          throw new Error(data.error || 'Failed to launch');
+        }
+      } catch (err) {
+        ingestResultMsg.className = 'ingest-result-msg msg-error';
+        ingestResultMsg.innerHTML = `❌ <strong>Launch Error:</strong> ${escapeHtml(err.message)}`;
+        ingestResultMsg.style.display = 'block';
+      } finally {
+        launchIngestBtn.disabled = false;
+        launchIngestBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg><span>🚀 Launch Cloud Runner Ingestion</span>';
+      }
+    });
+  }
+}
+
+async function loadMissingQueue() {
+  if (!missingAnimeList) return;
+  missingAnimeList.innerHTML = '<div class="torrent-loading">Scanning database for missing anime...</div>';
+  try {
+    const res = await fetch('/api/torrent/missing');
+    const data = await res.json();
+    const series = data.series || [];
+    if (torrentMissingCount) torrentMissingCount.textContent = series.length;
+
+    if (series.length === 0) {
+      missingAnimeList.innerHTML = '<div class="torrent-loading" style="color:#34d399;">🎉 All anime in the catalog are 100% complete! No missing episodes.</div>';
+      return;
+    }
+
+    missingAnimeList.innerHTML = series.map(s => `
+      <div class="missing-card">
+        <div class="missing-card-left">
+          <img class="missing-poster" src="${s.poster_url || 'https://via.placeholder.com/48x68?text=Anime'}" alt="${escapeHtml(s.title)}" onerror="this.src='https://via.placeholder.com/48x68?text=Anime'">
+          <div class="missing-info">
+            <h4>${escapeHtml(s.title)}</h4>
+            <div class="missing-tags">
+              <span class="tag-red">⚠️ ${s.missing_episodes} Missing</span>
+              <span>•</span>
+              <span class="tag-green">🟢 ${s.playable_episodes} / ${s.total_episodes} Playable</span>
+              <span>•</span>
+              <span>TMDB: ${s.tmdb_id}</span>
+            </div>
+          </div>
+        </div>
+        <button class="btn-search-torrents" onclick="findTorrentsForSeries(${s.tmdb_id}, '${escapeHtml(s.title).replace(/'/g, "\\'")}')">
+          🔍 Find Torrents
+        </button>
+      </div>
+    `).join('');
+  } catch (err) {
+    missingAnimeList.innerHTML = `<div class="torrent-loading" style="color:#f87171;">Error loading queue: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+window.findTorrentsForSeries = function(tmdbId, title) {
+  const directTab = document.querySelector('[data-tab="direct-tab"]');
+  if (directTab) directTab.click();
+
+  if (ingestTmdbId) ingestTmdbId.value = tmdbId;
+  if (tsukihimeQueryInput) tsukihimeQueryInput.value = `${title} hindi`;
+  searchTsukihimeTorrents(`${title} hindi`);
+};
+
+async function searchTsukihimeTorrents(query) {
+  if (!tsukihimeResultsList) return;
+  tsukihimeResultsList.innerHTML = '<div class="torrent-loading">Searching Tsukihime anime API...</div>';
+  try {
+    const res = await fetch(`/api/torrent/search?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    const results = data.results || [];
+
+    if (results.length === 0) {
+      tsukihimeResultsList.innerHTML = `<div class="torrent-loading">No torrents found for "${escapeHtml(query)}". Try removing "hindi" or searching English title.</div>`;
+      return;
+    }
+
+    tsukihimeResultsList.innerHTML = results.map(t => `
+      <div class="tsukihime-item">
+        <div class="tsukihime-item-left">
+          <div class="tsukihime-item-title">
+            ${escapeHtml(t.name)}
+            ${t.has_hindi ? '<span class="tsukihime-badge-hindi">🎙️ HINDI DUB</span>' : ''}
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:3px;">
+            Size: ${t.size_mb} MB • Audio: ${(t.audiolangs || []).join(', ') || 'N/A'} • Group: ${escapeHtml(t.group || 'Public')}
+          </div>
+        </div>
+        <button class="btn-use-torrent" onclick="selectTorrent('${escapeHtml(t.magnet).replace(/'/g, "\\'")}')">
+          Use This Torrent
+        </button>
+      </div>
+    `).join('');
+  } catch (err) {
+    tsukihimeResultsList.innerHTML = `<div class="torrent-loading" style="color:#f87171;">Search error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+window.selectTorrent = function(magnet) {
+  if (ingestMagnetInput) {
+    ingestMagnetInput.value = magnet;
+    ingestMagnetInput.focus();
+    window.scrollTo({ top: ingestMagnetInput.offsetTop - 100, behavior: 'smooth' });
+  }
+};
+
+async function loadCloudRuns() {
+  if (!cloudRunsList) return;
+  cloudRunsList.innerHTML = '<div class="torrent-loading">Fetching live GitHub Actions runner status...</div>';
+  try {
+    const res = await fetch('/api/torrent/runs');
+    const data = await res.json();
+    const runs = data.runs || [];
+
+    if (runs.length === 0) {
+      cloudRunsList.innerHTML = '<div class="torrent-loading">No recent cloud runs found.</div>';
+      return;
+    }
+
+    cloudRunsList.innerHTML = runs.map(r => {
+      let statusClass = 'run-progress';
+      let statusText = 'IN PROGRESS';
+      if (r.status === 'completed') {
+        if (r.conclusion === 'success') {
+          statusClass = 'run-success';
+          statusText = 'COMPLETED (SUCCESS)';
+        } else {
+          statusClass = 'run-failure';
+          statusText = `FAILED (${(r.conclusion || '').toUpperCase()})`;
+        }
+      }
+
+      return `
+        <div class="run-card">
+          <div>
+            <div style="font-weight:700;color:#fff;font-size:0.9rem;">
+              ${escapeHtml(r.name || 'Torrent Cloud Ingestion')}
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">
+              ID: ${r.databaseId} • Started: ${new Date(r.createdAt).toLocaleTimeString()}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="run-status-badge ${statusClass}">${statusText}</span>
+            <a href="${r.url}" target="_blank" rel="noopener" class="btn-tool" style="font-size:0.75rem;">
+              View Logs ↗
+            </a>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    cloudRunsList.innerHTML = `<div class="torrent-loading" style="color:#f87171;">Error loading runs: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 // Global scope initialization
