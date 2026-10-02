@@ -138,3 +138,26 @@ gh run list --repo Zayrix-bit/anime-dropembed-fleet -L 5
    - Check why `176 HLS_ERROR` and `35 ERROR` episodes in `blakiteapi.xyz` failed in `worker.js`.
    - Mostly, these are due to expired Rumble byte-ranges in `qualities_json` or outdated CDN URLs.
    - To fix them: call `https://blakiteapi.xyz/api/get.php?id={season}-{episode}&tmdbId={tmdb_id}` to refresh fresh `dataId` and `ranges`, then re-queue them to DropEmbed via `remote-upload`.
+
+---
+
+## 📚 8. Blakite Catalog Reconciliation & Dual Dub ('Both') Integration
+On October 2, 2026, a comprehensive live audit between `https://blakiteapi.xyz/api/getAllAnime.php` and the MySQL database was conducted:
+
+### Blakite Catalog Summary:
+- **FanDub (`language=FanDub`)**: 55 Titles on Blakite -> **All 55 saved in DB (0 missing)**.
+- **Official / ORG (`language=ORG`)**: 234 Titles on Blakite -> **231 saved in DB**.
+- The 3 remaining unindexed titles on Blakite:
+  1. `Mahabharat` (TMDB 503928, Movie - Indian animation, API returns content not found).
+  2. `Squid Game` (TMDB 93405, 2 Seasons - Korean Live Action Drama).
+  3. `Genie, Make a Wish` (TMDB 228689, 1 Season - Korean Live Action Drama).
+
+### Dual-Dub (`Both`) Resolution:
+- **Tokyo Revengers** (TMDB: `105009`): Blakite has S1 (Official, 24 eps) and S2+S3 (FanDub, 25 eps). Previously tagged as 'FanDub' in `anime_series`.
+- **Re:Monster** (TMDB: `235389`): Blakite has S1 Official (12 eps) and S1 FanDub (12 eps). Previously tagged as 'FanDub'.
+- **Database & Code Fix**:
+  - `anime_series` & `dropembed_anime_series`: Updated `dub_type = 'Both'` for both titles. Tokyo Revengers `total_seasons` updated to `3` and `total_episodes` to `49`. Re:Monster `total_episodes` updated to `24`.
+  - Backend filter logic (`anime-portal` & `anime-dropembed-fleet` `server.js`): Updated `WHERE (dub_type = ? OR dub_type = 'Both')` so that filtering by either 'Official' or 'FanDub' includes both hybrid titles.
+  - Stats API: Updated to `SUM(CASE WHEN dub_type IN ('Official', 'Both') THEN 1 ELSE 0 END)` showing **231 Official** and **55 FanDub** titles.
+  - Frontend UI (`app.js`): Displays `🎙️ Official & 🎧 FanDub` badge for `dub_type = 'Both'`. Season tabs allow seamless switching across Official (S1) and FanDub (S2/S3).
+

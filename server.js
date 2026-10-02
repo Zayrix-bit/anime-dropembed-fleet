@@ -32,7 +32,7 @@ const pool = mysql.createPool({
   password: DB_PASSWORD,
   database: DB_NAME,
   waitForConnections: true,
-  connectionLimit: 15,
+  connectionLimit: 5,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000
 });
@@ -164,8 +164,8 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) as total_titles,
         SUM(CASE WHEN type = 'Movie' THEN 1 ELSE 0 END) as total_movies,
         SUM(CASE WHEN type = 'TV' THEN 1 ELSE 0 END) as total_tv,
-        SUM(CASE WHEN dub_type = 'Official' THEN 1 ELSE 0 END) as official_titles,
-        SUM(CASE WHEN dub_type = 'FanDub' THEN 1 ELSE 0 END) as fandub_titles
+        SUM(CASE WHEN dub_type IN ('Official', 'Both') THEN 1 ELSE 0 END) as official_titles,
+        SUM(CASE WHEN dub_type IN ('FanDub', 'Both') THEN 1 ELSE 0 END) as fandub_titles
       FROM dropembed_anime_series
     `);
 
@@ -360,7 +360,7 @@ app.get('/api/anime', async (req, res) => {
     }
 
     if (dub_type !== 'ALL') {
-      conditions.push('dub_type = ?');
+      conditions.push('(dub_type = ? OR dub_type = "Both")');
       params.push(dub_type);
     }
 

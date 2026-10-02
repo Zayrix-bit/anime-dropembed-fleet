@@ -177,7 +177,7 @@ function displayFeaturedItem(idx) {
   heroGenres.textContent = anime.genres ? anime.genres.replace(/[[\]"]/g, '').split(',').slice(0, 3).join(', ') : 'Action, Anime';
 
   heroRatingBadge.textContent = `★ ${anime.rating ? Number(anime.rating).toFixed(1) : '8.5'}`;
-  heroDubBadge.textContent = anime.dub_type === 'Official' ? '🎙️ Official Dub' : '🎧 Fan Dub';
+  heroDubBadge.textContent = anime.dub_type === 'Both' ? '🎙️ Official & 🎧 FanDub' : (anime.dub_type === 'Official' ? '🎙️ Official Dub' : '🎧 Fan Dub');
   heroStatusBadge.textContent = anime.status === 'Ongoing' ? '⚡ Ongoing' : '✓ Completed';
 
   // Update Dots
@@ -254,7 +254,7 @@ function renderCatalog(items, total, page, totalPages) {
   animeGrid.innerHTML = items.map(anime => {
     const poster = anime.poster_url || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=400&q=80';
     const rating = anime.rating ? Number(anime.rating).toFixed(1) : '8.0';
-    const dubTag = anime.dub_type === 'Official' ? '🎙️ Official' : '🎧 FanDub';
+    const dubTag = anime.dub_type === 'Both' ? '🎙️ Official & 🎧 FanDub' : (anime.dub_type === 'Official' ? '🎙️ Official' : '🎧 FanDub');
 
     return `
       <div class="anime-card" onclick="openPlayerModal(${anime.tmdb_id})">
@@ -327,7 +327,7 @@ async function openPlayerModal(tmdbId) {
     // Populate modal title & badges
     modalAnimeTitle.textContent = data.anime.title || 'Anime Stream';
     modalStatusBadge.textContent = data.anime.status || 'Series';
-    modalDubBadge.textContent = data.anime.dub_type === 'Official' ? '🎙️ Official Dub' : '🎧 Fan Dub';
+    modalDubBadge.textContent = data.anime.dub_type === 'Both' ? '🎙️ Official & 🎧 FanDub' : (data.anime.dub_type === 'Official' ? '🎙️ Official Dub' : '🎧 Fan Dub');
     modalSynopsis.textContent = data.anime.synopsis || 'No synopsis provided.';
 
     // External DB Links
