@@ -621,6 +621,18 @@ async function main() {
     const info = extractEpisodeInfo(rawFilename, TARGET_SEASON, TARGET_EPISODE);
     console.log(`   🎯 Detected: Season ${info.season}, Episode ${info.episode}`);
 
+    // Check if this episode is already playable MP4 in DB (unless explicitly targeted)
+    if (TARGET_EPISODE === 'AUTO') {
+      const [existing] = await pool.execute(
+        "SELECT id, filecode FROM dropembed_anime_episodes WHERE tmdb_id = ? AND season = ? AND episode = ? AND stream_type = 'MP4' AND filecode IS NOT NULL AND LENGTH(filecode) > 6",
+        [TMDB_ID, info.season, info.episode]
+      );
+      if (existing.length > 0) {
+        console.log(`   ⏭️ S${info.season}E${info.episode} already has active DropEmbed MP4 (${existing[0].filecode}). Skipping!`);
+        continue;
+      }
+    }
+
     const safeTitle = `${animeTitle || 'Anime'} S${String(info.season).padStart(2, '0')}E${String(info.episode).padStart(2, '0')} [1080p]`;
     const cleanOutputName = `tmdb_${TMDB_ID}_s${info.season}e${info.episode}_${Date.now()}.mp4`;
     const outputPath = path.join(PROCESSED_DIR, cleanOutputName);
