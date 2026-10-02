@@ -94,6 +94,7 @@ async function fetchLiveFleetStatus() {
     if (data.success) {
       connStatusText.textContent = 'DB: 37.27.232.161 (Connected)';
       updateAccountInfo(data.dropembed_account);
+      updateIngestPipeline(data.dropembed_ingest);
       updateSummaryBanner(data.summary);
       updateQualityChart(data.quality_distribution || []);
       updateLiveActivity(data.recent_conversions || []);
@@ -109,6 +110,47 @@ async function fetchLiveFleetStatus() {
 /* ==============================================================================
    3. UPDATE SECTIONS
    ============================================================================== */
+function updateIngestPipeline(ingest) {
+  if (!ingest) return;
+  const ready = Number(ingest.ready || 0);
+  const downloading = Number(ingest.downloading || 0);
+  const processing = Number(ingest.processing || 0);
+  const error = Number(ingest.error || 0);
+  const total = Number(ingest.total || (ready + downloading + processing + error) || 1);
+
+  const readyPct = ((ready / total) * 100).toFixed(1);
+  const downloadingPct = ((downloading / total) * 100).toFixed(1);
+  const processingPct = ((processing / total) * 100).toFixed(1);
+  const errorPct = ((error / total) * 100).toFixed(1);
+
+  const rCount = document.getElementById('ingestReadyCount');
+  const rPct = document.getElementById('ingestReadyPct');
+  const dCount = document.getElementById('ingestDownloadingCount');
+  const dPct = document.getElementById('ingestDownloadingPct');
+  const pCount = document.getElementById('ingestProcessingCount');
+  const pPct = document.getElementById('ingestProcessingPct');
+  const eCount = document.getElementById('ingestErrorCount');
+  const ePct = document.getElementById('ingestErrorPct');
+
+  const sReady = document.getElementById('segReadyBar');
+  const sDownloading = document.getElementById('segDownloadingBar');
+  const sProcessing = document.getElementById('segProcessingBar');
+  const sError = document.getElementById('segErrorBar');
+
+  if (rCount) rCount.textContent = ready.toLocaleString();
+  if (rPct) rPct.textContent = `${readyPct}% completed`;
+  if (dCount) dCount.textContent = downloading.toLocaleString();
+  if (dPct) dPct.textContent = `${downloadingPct}% in cloud transfer`;
+  if (pCount) pCount.textContent = processing.toLocaleString();
+  if (pPct) pPct.textContent = `${processingPct}% finalizing`;
+  if (eCount) eCount.textContent = error.toLocaleString();
+  if (ePct) ePct.textContent = `${errorPct}% Rumble source issue`;
+
+  if (sReady) { sReady.style.width = `${readyPct}%`; sReady.title = `Ready: ${ready.toLocaleString()}`; }
+  if (sDownloading) { sDownloading.style.width = `${downloadingPct}%`; sDownloading.title = `Downloading: ${downloading.toLocaleString()}`; }
+  if (sProcessing) { sProcessing.style.width = `${processingPct}%`; sProcessing.title = `Processing: ${processing.toLocaleString()}`; }
+  if (sError) { sError.style.width = `${errorPct}%`; sError.title = `Error: ${error.toLocaleString()}`; }
+}
 function updateAccountInfo(acc) {
   if (!acc) return;
   accUsername.textContent = acc.username || 'elfen0909';
