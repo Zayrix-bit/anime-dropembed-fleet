@@ -1009,9 +1009,52 @@ body {
   color: #6ee7b7;
 }
 
+.diag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-green {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.dot-red {
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
 .diag-sub {
   color: var(--text-subtle);
   font-size: 0.7rem;
+}
+
+.btn-copy-embed {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.btn-copy-embed:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.btn-copy-embed.copied {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: #10b981 !important;
+  color: #34d399 !important;
+}
+
+.card-expired {
+  opacity: 0.8;
+}
+
+.ep-unplayable {
+  opacity: 0.6;
+  border-style: dashed;
 }
 
 /* Episode Drawer */

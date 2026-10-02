@@ -336,6 +336,7 @@ app.get('/api/anime', async (req, res) => {
       type = 'ALL', 
       dub_type = 'ALL', 
       status = 'ALL',
+      status_type = 'ALL',
       sort = 'rating',
       page = 1,
       limit = 48 
@@ -345,47 +346,65 @@ app.get('/api/anime', async (req, res) => {
     const params = [];
 
     if (search.trim()) {
-      conditions.push('(title LIKE ? OR title_hindi LIKE ?)');
+      conditions.push('(s.title LIKE ? OR s.title_hindi LIKE ?)');
       params.push(`%${search.trim()}%`, `%${search.trim()}%`);
     }
 
     if (format !== 'ALL') {
-      conditions.push('format = ?');
+      conditions.push('s.format = ?');
       params.push(format);
     }
 
     if (type !== 'ALL') {
-      conditions.push('type = ?');
+      conditions.push('s.type = ?');
       params.push(type);
     }
 
     if (dub_type !== 'ALL') {
-      conditions.push('(dub_type = ? OR dub_type = "Both")');
+      conditions.push('(s.dub_type = ? OR s.dub_type = "Both")');
       params.push(dub_type);
     }
 
     if (status === 'ONGOING') {
-      conditions.push("(status IN ('Ongoing', 'Returning Series'))");
+      conditions.push("(s.status IN ('Ongoing', 'Returning Series'))");
     } else if (status === 'FINISHED') {
-      conditions.push("(status IN ('Ended', 'Released', 'Canceled'))");
+      conditions.push("(s.status IN ('Ended', 'Released', 'Canceled'))");
+    }
+
+    if (status_type === 'PLAYABLE') {
+      conditions.push('COALESCE(ep_stats.playable_count, 0) > 0');
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    let orderBy = 'ORDER BY rating DESC, total_episodes DESC';
-    if (sort === 'episodes') orderBy = 'ORDER BY total_episodes DESC';
-    if (sort === 'title') orderBy = 'ORDER BY title ASC';
-    if (sort === 'latest') orderBy = 'ORDER BY id DESC';
+    let orderBy = 'ORDER BY s.rating DESC, s.total_episodes DESC';
+    if (sort === 'episodes') orderBy = 'ORDER BY s.total_episodes DESC';
+    if (sort === 'title') orderBy = 'ORDER BY s.title ASC';
+    if (sort === 'latest') orderBy = 'ORDER BY s.id DESC';
+
+    const joinClause = `
+      FROM dropembed_anime_series s
+      LEFT JOIN (
+        SELECT tmdb_id,
+          COUNT(*) as total_count,
+          SUM(CASE WHEN stream_type = 'MP4' AND filecode IS NOT NULL THEN 1 ELSE 0 END) as playable_count
+        FROM dropembed_anime_episodes
+        GROUP BY tmdb_id
+      ) ep_stats ON s.tmdb_id = ep_stats.tmdb_id
+    `;
 
     // Count total
-    const [countRows] = await pool.execute(`SELECT COUNT(*) as total FROM dropembed_anime_series ${whereClause}`, params);
+    const [countRows] = await pool.execute(`SELECT COUNT(*) as total ${joinClause} ${whereClause}`, params);
     const total = countRows[0].total;
 
     // Fetch page items
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
     const sql = `
-      SELECT tmdb_id, title, title_hindi, type, status, dub_type, format, synopsis, rating, genres, poster_url, backdrop_url, total_episodes, total_seasons, anilist_id, mal_id
-      FROM dropembed_anime_series
+      SELECT 
+        s.tmdb_id, s.title, s.title_hindi, s.type, s.status, s.dub_type, s.format, s.synopsis, s.rating, s.genres, s.poster_url, s.backdrop_url, s.total_episodes, s.total_seasons, s.anilist_id, s.mal_id,
+        COALESCE(ep_stats.playable_count, 0) as playable_episodes,
+        COALESCE(ep_stats.total_count, 0) as total_db_episodes
+      ${joinClause}
       ${whereClause}
       ${orderBy}
       LIMIT ? OFFSET ?
@@ -422,9 +441,22 @@ app.get('/api/anime/:tmdbId', async (req, res) => {
       ORDER BY season ASC, episode ASC
     `, [tmdbId]);
 
+    // Format clean /e/ embed_url and iframe code
+    const formattedEpisodes = episodes.map(ep => {
+      const code = ep.filecode;
+      const cleanEmbedUrl = code ? `https://dropembed.com/e/${code}` : (ep.embed_url ? ep.embed_url.replace('/v/', '/e/') : null);
+      const iframeCode = cleanEmbedUrl ? `<iframe src="${cleanEmbedUrl}" width="640" height="360" frameborder="0" allowfullscreen allow="autoplay; fullscreen"></iframe>` : null;
+      return {
+        ...ep,
+        embed_url: cleanEmbedUrl,
+        iframe_code: iframeCode,
+        is_playable: ep.stream_type === 'MP4' && !!code
+      };
+    });
+
     // Group episodes by season
     const seasons = {};
-    for (const ep of episodes) {
+    for (const ep of formattedEpisodes) {
       if (!seasons[ep.season]) seasons[ep.season] = [];
       seasons[ep.season].push(ep);
     }
@@ -432,7 +464,8 @@ app.get('/api/anime/:tmdbId', async (req, res) => {
     res.json({
       success: true,
       anime,
-      totalEpisodes: episodes.length,
+      totalEpisodes: formattedEpisodes.length,
+      playableEpisodes: formattedEpisodes.filter(e => e.is_playable).length,
       seasonsCount: Object.keys(seasons).length,
       seasons
     });

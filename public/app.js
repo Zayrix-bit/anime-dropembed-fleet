@@ -12,6 +12,7 @@ const state = {
     type: 'ALL',
     dub_type: 'ALL',
     status: 'ALL',
+    status_type: 'ALL',
     sort: 'rating',
     page: 1,
     limit: 48
@@ -75,6 +76,8 @@ const episodesGrid = document.getElementById('episodesGrid');
 const diagDot = document.getElementById('diagDot');
 const diagTitle = document.getElementById('diagTitle');
 const diagSub = document.getElementById('diagSub');
+const copyEmbedBtn = document.getElementById('copyEmbedBtn');
+const copyEmbedText = document.getElementById('copyEmbedText');
 const openSourceBtn = document.getElementById('openSourceBtn');
 const reloadPlayerBtn = document.getElementById('reloadPlayerBtn');
 const prevEpBtn = document.getElementById('prevEpBtn');
@@ -255,13 +258,27 @@ function renderCatalog(items, total, page, totalPages) {
     const poster = anime.poster_url || 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=400&q=80';
     const rating = anime.rating ? Number(anime.rating).toFixed(1) : '8.0';
     const dubTag = anime.dub_type === 'Both' ? '🎙️ Official & 🎧 FanDub' : (anime.dub_type === 'Official' ? '🎙️ Official' : '🎧 FanDub');
+    
+    const playable = Number(anime.playable_episodes || 0);
+    const totalDb = Number(anime.total_db_episodes || anime.total_episodes || 0);
+    const isPlayable = playable > 0;
+    const isFullyPlayable = isPlayable && (playable >= totalDb);
+
+    let statusBadge = '';
+    if (isFullyPlayable) {
+      statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.22); border: 1px solid rgba(16,185,129,0.45); color: #34d399; font-weight: 700;">🟢 ${playable} MP4 Ready</span>`;
+    } else if (isPlayable) {
+      statusBadge = `<span class="badge" style="background: rgba(59,130,246,0.22); border: 1px solid rgba(59,130,246,0.45); color: #60a5fa; font-weight: 700;">🟢 ${playable}/${totalDb} Ready</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.22); border: 1px solid rgba(239,68,68,0.45); color: #f87171; font-weight: 700;">⚠️ Expired</span>`;
+    }
 
     return `
-      <div class="anime-card" onclick="openPlayerModal(${anime.tmdb_id})">
+      <div class="anime-card ${!isPlayable ? 'card-expired' : ''}" onclick="openPlayerModal(${anime.tmdb_id})">
         <div class="card-poster-wrap">
           <img src="${poster}" alt="${escapeHtml(anime.title)}" class="card-poster" loading="lazy">
           <div class="card-badges">
-            <span class="badge badge-dropembed">DropEmbed MP4</span>
+            ${statusBadge}
             <span class="badge badge-dub">${dubTag}</span>
           </div>
           <span class="card-rating-badge">★ ${rating}</span>
@@ -275,10 +292,10 @@ function renderCatalog(items, total, page, totalPages) {
           <h3 class="card-title">${escapeHtml(anime.title)}</h3>
           <h4 class="card-title-hindi">${escapeHtml(anime.title_hindi || '')}</h4>
           <div class="card-meta">
-            <span>${anime.total_episodes || 0} Eps • ${anime.format || 'TV'}</span>
-            <span class="card-stream-tag">
+            <span>${totalDb || anime.total_episodes || 0} Eps • ${anime.format || 'TV'}</span>
+            <span class="card-stream-tag" style="${isPlayable ? 'color: #34d399;' : 'color: #f87171;'}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-              Ready
+              ${isPlayable ? `${playable} MP4 Streamable` : 'Expired'}
             </span>
           </div>
         </div>
@@ -341,13 +358,17 @@ async function openPlayerModal(tmdbId) {
     // Populate Season Tabs
     renderSeasonTabs(data.seasons);
 
-    // Pick first available season and episode
-    const firstSeasonNum = Object.keys(data.seasons)[0] || 1;
-    switchSeason(parseInt(firstSeasonNum, 10));
+    // Pick first available season and episode (prioritize playable episode)
+    const firstPlayableIdx = state.allEpisodesFlat.findIndex(e => e.is_playable || (e.stream_type === 'MP4' && e.filecode));
+    const targetIdx = firstPlayableIdx !== -1 ? firstPlayableIdx : 0;
+    const startEp = state.allEpisodesFlat[targetIdx];
+    const initialSeason = startEp ? startEp.season : (Object.keys(data.seasons)[0] || 1);
+
+    switchSeason(parseInt(initialSeason, 10));
 
     // Play first episode
     if (state.allEpisodesFlat.length > 0) {
-      playEpisodeByIndex(0);
+      playEpisodeByIndex(targetIdx);
     }
   } catch (err) {
     alert(`Could not load anime player: ${err.message}`);
@@ -382,11 +403,16 @@ function switchSeason(seasonNum) {
     const epIdx = state.allEpisodesFlat.findIndex(e => e.id === ep.id);
     const isCurrent = (epIdx === state.activeEpisodeIndex);
     const quality = ep.quality || '1080p';
+    const isPlayable = ep.is_playable || (ep.stream_type === 'MP4' && !!ep.filecode);
 
     return `
-      <div class="ep-btn ${isCurrent ? 'active' : ''}" data-index="${epIdx}" onclick="playEpisodeByIndex(${epIdx})">
+      <div class="ep-btn ${isCurrent ? 'active' : ''} ${!isPlayable ? 'ep-unplayable' : ''}" 
+           data-index="${epIdx}" 
+           onclick="playEpisodeByIndex(${epIdx})">
         <span class="ep-num">Episode ${ep.episode}</span>
-        <span class="ep-quality">DropEmbed • ${quality}</span>
+        <span class="ep-quality" style="${isPlayable ? 'color: #34d399;' : 'color: #f87171;'}">
+          ${isPlayable ? `🟢 Ready • ${quality}` : `⚠️ Expired`}
+        </span>
       </div>
     `;
   }).join('');
@@ -414,20 +440,27 @@ function playEpisodeByIndex(index) {
   modalFormatBadge.textContent = `DropEmbed MP4 [${ep.quality || '1080p'}]`;
   currPlayingLabel.textContent = `Playing S${ep.season} Episode ${ep.episode} (${ep.quality || '1080p'})`;
 
-  // Diagnostic Info
-  diagTitle.textContent = `Stream: DropEmbed Cloud MP4 (${ep.quality || '1080p'})`;
-  diagSub.textContent = `ID: ${ep.filecode ? ep.filecode.slice(0, 14) + '...' : 'Live'}`;
-  diagDot.className = 'diag-dot dot-green';
-
-  // Embed URL resolution
+  // Embed URL resolution: ensure clean /e/ URL
   let embedUrl = ep.embed_url;
   if (!embedUrl && ep.filecode) {
-    embedUrl = `https://dropembed.com/v/${ep.filecode}`;
+    embedUrl = `https://dropembed.com/e/${ep.filecode}`;
+  } else if (embedUrl && embedUrl.includes('/v/')) {
+    embedUrl = embedUrl.replace('/v/', '/e/');
   }
 
-  if (embedUrl) {
+  const isPlayable = ep.is_playable || (ep.stream_type === 'MP4' && !!ep.filecode);
+
+  if (isPlayable && embedUrl) {
     playerLoader.style.display = 'flex';
     playerLoader.style.opacity = '1';
+    playerLoader.innerHTML = `<div class="spinner"></div><span>Loading DropEmbed Cloud Stream...</span>`;
+
+    // DropEmbed responsive iframe embed with exact user requested attributes
+    videoIframe.setAttribute('width', '640');
+    videoIframe.setAttribute('height', '360');
+    videoIframe.setAttribute('frameborder', '0');
+    videoIframe.setAttribute('allowfullscreen', 'true');
+    videoIframe.setAttribute('allow', 'autoplay; fullscreen');
     videoIframe.src = embedUrl;
 
     videoIframe.onload = () => {
@@ -437,10 +470,46 @@ function playEpisodeByIndex(index) {
       }, 500);
     };
 
-    openSourceBtn.href = ep.watch_url || embedUrl;
+    openSourceBtn.href = ep.watch_url || `https://dropembed.com/v/${ep.filecode || ''}`;
     openSourceBtn.style.display = 'inline-flex';
+
+    diagTitle.textContent = `Stream: DropEmbed Cloud MP4 (${ep.quality || '1080p'})`;
+    diagSub.textContent = `ID: ${ep.filecode ? ep.filecode.slice(0, 14) + '...' : 'Live'}`;
+    diagDot.className = 'diag-dot dot-green';
   } else {
-    playerLoader.innerHTML = `<span style="color:#ef4444;">❌ No DropEmbed Stream Available</span>`;
+    videoIframe.src = '';
+    playerLoader.style.display = 'flex';
+    playerLoader.style.opacity = '1';
+    playerLoader.innerHTML = `
+      <span style="color:#ef4444; font-weight: 700; font-size: 1.1rem;">⚠️ Stream Not Available</span>
+      <p style="color:#94a3b8; font-size: 0.85rem; margin-top: 6px; text-align: center; max-width: 400px;">
+        This episode's source file was removed on Rumble CDN (403 AccessDenied). Please select a playable episode marked with 🟢 Ready.
+      </p>
+    `;
+    diagTitle.textContent = `Stream: Expired / Unavailable`;
+    diagSub.textContent = `Status: Rumble 403`;
+    diagDot.className = 'diag-dot dot-red';
+  }
+
+  // Setup Copy Embed Button
+  if (copyEmbedBtn) {
+    copyEmbedBtn.onclick = () => {
+      if (!embedUrl) {
+        alert('No embed URL available for this episode.');
+        return;
+      }
+      const embedCode = `<iframe src="${embedUrl}" width="640" height="360" frameborder="0" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
+      navigator.clipboard.writeText(embedCode).then(() => {
+        copyEmbedBtn.classList.add('copied');
+        if (copyEmbedText) copyEmbedText.textContent = 'Copied! ✓';
+        setTimeout(() => {
+          copyEmbedBtn.classList.remove('copied');
+          if (copyEmbedText) copyEmbedText.textContent = 'Copy Embed';
+        }, 2000);
+      }).catch(() => {
+        prompt('DropEmbed iframe code:', embedCode);
+      });
+    };
   }
 
   // Prev / Next button states
@@ -492,7 +561,7 @@ function setupEventListeners() {
     loadCatalog();
   });
 
-  // Filter Pills (Format, Type)
+  // Filter Pills (Format, Type, Status)
   document.querySelectorAll('#formatFilters .pill').forEach(pill => {
     pill.addEventListener('click', (e) => {
       document.querySelectorAll('#formatFilters .pill').forEach(p => p.classList.remove('active'));
@@ -501,12 +570,18 @@ function setupEventListeners() {
       const filterType = e.target.getAttribute('data-filter');
       const filterVal = e.target.getAttribute('data-val');
 
-      if (filterType === 'format') {
-        state.currentFilters.format = filterVal;
+      if (filterType === 'status_type') {
+        state.currentFilters.status_type = filterVal;
         state.currentFilters.type = 'ALL';
+        state.currentFilters.format = 'ALL';
       } else if (filterType === 'type') {
         state.currentFilters.type = filterVal;
+        state.currentFilters.status_type = 'ALL';
         state.currentFilters.format = 'ALL';
+      } else if (filterType === 'format') {
+        state.currentFilters.format = filterVal;
+        state.currentFilters.status_type = 'ALL';
+        state.currentFilters.type = 'ALL';
       }
 
       state.currentFilters.page = 1;

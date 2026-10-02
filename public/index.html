@@ -121,8 +121,8 @@
         <div class="filter-group">
           <span class="filter-label">Stream Status:</span>
           <div class="filter-pills" id="formatFilters">
-            <button class="pill active" data-filter="format" data-val="ALL">All (284)</button>
-            <button class="pill pill-mp4" data-filter="format" data-val="MP4">🟢 100% DropEmbed MP4</button>
+            <button class="pill active" data-filter="status_type" data-val="ALL">All (284)</button>
+            <button class="pill pill-mp4" data-filter="status_type" data-val="PLAYABLE">🟢 Playable DropEmbed MP4 (278)</button>
             <button class="pill pill-tv" data-filter="type" data-val="TV">📺 TV Series</button>
             <button class="pill pill-movie" data-filter="type" data-val="Movie">🎬 Movies</button>
           </div>
@@ -203,9 +203,11 @@
           <iframe 
             id="videoIframe" 
             src="" 
+            width="640" 
+            height="360" 
+            frameborder="0" 
             allowfullscreen 
-            allow="autoplay; fullscreen; picture-in-picture"
-            frameborder="0"
+            allow="autoplay; fullscreen"
           ></iframe>
         </div>
 
@@ -229,6 +231,10 @@
               <span id="diagTitle">Stream: DropEmbed Cloud MP4</span>
               <span id="diagSub" class="diag-sub">ID: ...</span>
             </div>
+            <button class="btn-tool btn-copy-embed" id="copyEmbedBtn" title="Copy DropEmbed Embed Code">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span id="copyEmbedText">Copy Embed</span>
+            </button>
             <a href="#" target="_blank" rel="noopener" class="btn-tool btn-source-link" id="openSourceBtn">
               <span>Open on DropEmbed</span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
