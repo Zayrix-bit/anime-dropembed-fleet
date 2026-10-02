@@ -115,16 +115,37 @@ async function downloadVidaraToMp4(hlsUrl, outputMp4Path) {
     throw new Error(`TS file too small: ${tsSize} bytes`);
   }
 
-  // Convert TS → MP4 via ffmpeg (copy streams, no re-encoding)
-  execSync(`ffmpeg -y -i "${tsPath}" -c copy -bsf:a aac_adtstoasc "${outputMp4Path}"`, {
-    timeout: 300000,
-    stdio: 'ignore'
-  });
+  // Convert TS → MP4 via ffmpeg
+  // Try 1: stream copy (fastest)
+  // Try 2: re-encode if copy fails (handles corrupt segments)
+  let ffmpegSuccess = false;
+
+  const cmds = [
+    `ffmpeg -y -f mpegts -i "${tsPath}" -c copy -bsf:a aac_adtstoasc -movflags +faststart "${outputMp4Path}"`,
+    `ffmpeg -y -f mpegts -err_detect ignore_err -i "${tsPath}" -c copy -bsf:a aac_adtstoasc "${outputMp4Path}"`,
+    `ffmpeg -y -f mpegts -err_detect ignore_err -i "${tsPath}" -c:v copy -c:a aac -b:a 128k "${outputMp4Path}"`
+  ];
+
+  for (let ci = 0; ci < cmds.length; ci++) {
+    try {
+      execSync(cmds[ci], { timeout: 600000, stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 });
+      if (fs.existsSync(outputMp4Path) && fs.statSync(outputMp4Path).size > 50000) {
+        ffmpegSuccess = true;
+        break;
+      }
+    } catch (e) {
+      const stderr = e.stderr ? e.stderr.toString().slice(-300) : e.message;
+      console.log(`      ffmpeg attempt ${ci + 1}/3 failed: ${stderr.replace(/\n/g, ' ').slice(0, 150)}`);
+      try { if (fs.existsSync(outputMp4Path)) fs.unlinkSync(outputMp4Path); } catch {}
+    }
+  }
 
   // Cleanup TS
   try { fs.unlinkSync(tsPath); } catch {}
 
-  if (!fs.existsSync(outputMp4Path)) throw new Error('ffmpeg produced no output');
+  if (!ffmpegSuccess || !fs.existsSync(outputMp4Path)) {
+    throw new Error('All ffmpeg conversion attempts failed');
+  }
   return fs.statSync(outputMp4Path).size;
 }
 
