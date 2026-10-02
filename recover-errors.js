@@ -1,7 +1,7 @@
 import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -120,23 +120,24 @@ async function downloadVidaraToMp4(hlsUrl, outputMp4Path) {
   // Try 2: re-encode if copy fails (handles corrupt segments)
   let ffmpegSuccess = false;
 
-  const cmds = [
-    `ffmpeg -y -loglevel warning -err_detect ignore_err -f mpegts -i "${tsPath}" -c copy -bsf:a aac_adtstoasc -avoid_negative_ts make_zero -fflags +genpts -movflags +faststart "${outputMp4Path}"`,
-    `ffmpeg -y -loglevel warning -err_detect ignore_err -f mpegts -i "${tsPath}" -c copy -bsf:a aac_adtstoasc "${outputMp4Path}"`,
-    `ffmpeg -y -loglevel warning -err_detect ignore_err -f mpegts -i "${tsPath}" -c:v copy -c:a aac -b:a 128k -movflags +faststart "${outputMp4Path}"`
+  const cmdOptions = [
+    ['-y', '-loglevel', 'warning', '-err_detect', 'ignore_err', '-analyzeduration', '100M', '-probesize', '100M', '-f', 'mpegts', '-i', tsPath, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-avoid_negative_ts', 'make_zero', '-fflags', '+genpts', '-movflags', '+faststart', outputMp4Path],
+    ['-y', '-loglevel', 'warning', '-err_detect', 'ignore_err', '-f', 'mpegts', '-i', tsPath, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', outputMp4Path],
+    ['-y', '-loglevel', 'warning', '-err_detect', 'ignore_err', '-f', 'mpegts', '-i', tsPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outputMp4Path]
   ];
 
-  for (let ci = 0; ci < cmds.length; ci++) {
+  for (let ci = 0; ci < cmdOptions.length; ci++) {
     try {
-      execSync(cmds[ci], { timeout: 600000, stdio: 'pipe', maxBuffer: 50 * 1024 * 1024 });
-      if (fs.existsSync(outputMp4Path) && fs.statSync(outputMp4Path).size > 50000) {
+      const res = spawnSync('ffmpeg', cmdOptions[ci], { timeout: 600000, maxBuffer: 50 * 1024 * 1024 });
+      if (res.status === 0 && fs.existsSync(outputMp4Path) && fs.statSync(outputMp4Path).size > 50000) {
         ffmpegSuccess = true;
         break;
       }
-    } catch (e) {
-      const stderr = e.stderr ? e.stderr.toString().slice(-300) : e.message;
-      console.log(`      ffmpeg attempt ${ci + 1}/3 failed: ${stderr.replace(/\\n/g, ' ').slice(0, 150)}`);
+      const errOut = res.stderr ? res.stderr.toString().slice(-300) : (res.error ? res.error.message : `Exit code ${res.status}`);
+      console.log(`      ffmpeg attempt ${ci + 1}/3 failed: ${errOut.replace(/\n/g, ' ').slice(0, 150)}`);
       try { if (fs.existsSync(outputMp4Path)) fs.unlinkSync(outputMp4Path); } catch {}
+    } catch (e) {
+      console.log(`      ffmpeg attempt ${ci + 1}/3 exception: ${e.message}`);
     }
   }
 

@@ -17,7 +17,7 @@ on:
 jobs:
   recover:
     name: Recovery Shard ${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -34,11 +34,10 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: 🔧 Setup ffmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
-
-      - name: 🔧 Verify ffmpeg
-        run: ffmpeg -version | head -n 2
+      - name: 🔧 Verify / Install Native ffmpeg
+        run: |
+          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
+          ffmpeg -version | head -n 2
 
       - name: 📦 Install Dependencies
         run: npm install
