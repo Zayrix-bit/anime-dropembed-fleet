@@ -1,0 +1,55 @@
+name: Recover Error Episodes (Vidara → DropEmbed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Episodes per shard (0 = all)'
+        required: false
+        type: string
+        default: '0'
+      concurrency:
+        description: 'Parallel segment downloads'
+        required: false
+        type: string
+        default: '5'
+
+jobs:
+  recover:
+    name: Recovery Shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🔧 Verify ffmpeg
+        run: ffmpeg -version | head -1
+
+      - name: 🚀 Run Recovery Shard
+        run: node recover-errors.js
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY }}
+          SHARD_INDEX: ${{ matrix.shard }}
+          TOTAL_SHARDS: 5
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          SEGMENT_CONCURRENCY: ${{ inputs.concurrency }}
