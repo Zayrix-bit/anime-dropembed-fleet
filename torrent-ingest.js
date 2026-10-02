@@ -100,6 +100,23 @@ function initLocalServerAndTunnel() {
   });
 }
 
+function ensureTrackers(magnetUri) {
+  const extraTrackers = [
+    'udp://tracker.opentrackr.org:1337/announce',
+    'udp://open.stealth.si:80/announce',
+    'http://nyaa.tracker.wf:7777/announce',
+    'udp://exodus.desync.com:6969/announce',
+    'udp://tracker.torrent.eu.org:451/announce'
+  ];
+  let res = magnetUri;
+  for (const tr of extraTrackers) {
+    if (!res.includes(encodeURIComponent(tr))) {
+      res += `&tr=${encodeURIComponent(tr)}`;
+    }
+  }
+  return res;
+}
+
 // ── Resolver for Nyaa.si URLs, Direct .torrent files, and Magnet URIs ──
 async function resolveTorrentSource(input) {
   const trimmed = input.trim();
@@ -107,7 +124,7 @@ async function resolveTorrentSource(input) {
   // Case 1: Direct Magnet URI
   if (trimmed.startsWith('magnet:?')) {
     console.log(`🧲 Input is a direct Magnet URI`);
-    return { type: 'magnet', source: trimmed };
+    return { type: 'magnet', source: ensureTrackers(trimmed) };
   }
 
   // Case 2: Tsukihime Search or Torrent URL (e.g., https://tsukihime.org/search?q=... or https://tsukihime.org/torrent/...)
@@ -292,13 +309,16 @@ async function downloadTorrent(rawInput) {
   const ariaArgs = [
     '--enable-dht=true',
     '--enable-dht6=true',
+    '--dht-entry-point=dht.transmissionbt.com:6881',
+    '--dht-entry-point=router.bittorrent.com:6881',
+    '--dht-entry-point=router.utorrent.com:6881',
     '--bt-enable-lpd=true',
-    '--bt-max-peers=120',
+    '--bt-max-peers=200',
     '--max-connection-per-server=16',
     '--seed-time=0',
     '--max-overall-upload-limit=1K',
     '--summary-interval=5',
-    '--bt-stop-timeout=120',
+    '--bt-stop-timeout=600',
     '--bt-tracker=' + trackers,
     '--dir=' + DOWNLOADS_DIR,
     targetArg
