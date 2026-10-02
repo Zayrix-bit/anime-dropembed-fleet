@@ -1,0 +1,72 @@
+name: 🧲 Torrent to DropEmbed Cloud Ingestion
+
+on:
+  workflow_dispatch:
+    inputs:
+      magnet:
+        description: 'Magnet Link or .torrent URL'
+        required: true
+        type: string
+      tmdb_id:
+        description: 'TMDB ID of Anime (e.g. 300054)'
+        required: true
+        type: string
+      season:
+        description: 'Season Number'
+        required: false
+        type: string
+        default: '1'
+      episode:
+        description: 'Episode Number ("AUTO" to auto-detect from torrent filenames)'
+        required: false
+        type: string
+        default: 'AUTO'
+      title:
+        description: 'Optional Title / Note'
+        required: false
+        type: string
+
+jobs:
+  torrent_ingest:
+    name: ⚡ Torrent Download & Ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 📦 Install Node Dependencies
+        run: npm install
+
+      - name: 🛠️ Install aria2, FFmpeg, and Cloudflared
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y aria2 ffmpeg
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+          sudo chmod +x /usr/local/bin/cloudflared
+          echo "=== TOOL VERSIONS ==="
+          aria2c --version | head -n 1
+          ffmpeg -version | head -n 1
+          cloudflared --version
+
+      - name: 🚀 Run Torrent to DropEmbed Pipeline
+        run: node torrent-ingest.js
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY }}
+          MAGNET_URI: ${{ inputs.magnet }}
+          TMDB_ID: ${{ inputs.tmdb_id }}
+          TARGET_SEASON: ${{ inputs.season }}
+          TARGET_EPISODE: ${{ inputs.episode }}
+          EPISODE_TITLE: ${{ inputs.title }}
