@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
-import { spawn, spawnSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +18,9 @@ const DB_NAME = process.env.DB_NAME || 'jeevanka_anime';
 const DROPEMBED_API_KEY = process.env.DROPEMBED_API_KEY || 'dpe_live_c9bbcfeff68964f97bf935152ffe040b';
 const DROPEMBED_FOLDER_ID = process.env.DROPEMBED_FOLDER_ID ? parseInt(process.env.DROPEMBED_FOLDER_ID, 10) : null;
 const DROPEMBED_API = 'https://dropembed.com/api';
+const DROPEMBED_FTP_HOST = process.env.DROPEMBED_FTP_HOST || 'ftp.dropembed.com';
+const DROPEMBED_FTP_USER = process.env.DROPEMBED_FTP_USER || 'u11_elfen0909';
+const DROPEMBED_FTP_PASS = process.env.DROPEMBED_FTP_PASS || 'ft_68e7a5694283';
 
 // Workflow Inputs
 const MAGNET_URI = process.env.MAGNET_URI || process.argv[2] || '';
@@ -440,13 +443,61 @@ async function remuxToFastWebMp4(inputPath, outputPath) {
 }
 
 // ── Upload to DropEmbed ──
-async function uploadToDropEmbed(filePath, title) {
+async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
   const stat = fs.statSync(filePath);
   const sizeMb = (stat.size / 1024 / 1024).toFixed(1);
 
-  // Strategy A: If <= 95 MB, direct multipart
+  // Strategy 1: Direct FTP Upload (Fastest, direct to DropEmbed origin, no tunnel required)
+  try {
+    console.log(`   📤 Strategy 1: Direct FTP Upload (${sizeMb} MB) to ${DROPEMBED_FTP_HOST}...`);
+    const remoteFilename = `tmdb_${tmdbId || '0'}_s${sNum || '1'}e${epNum || '1'}_${Date.now()}.mp4`;
+    const cmd = `curl --ftp-pasv --retry 3 --retry-delay 3 -u "${DROPEMBED_FTP_USER}:${DROPEMBED_FTP_PASS}" -T "${filePath}" "ftp://${DROPEMBED_FTP_HOST}/${remoteFilename}"`;
+
+    execSync(cmd, { stdio: 'inherit' });
+    console.log(`   ✅ FTP transfer complete. Waiting for DropEmbed auto-ingestion...`);
+
+    const remotePrefix = remoteFilename.replace('.mp4', '');
+    // Poll DropEmbed API for up to 60 seconds
+    for (let attempt = 1; attempt <= 30; attempt++) {
+      await sleep(2000);
+      try {
+        const res = await fetch(`${DROPEMBED_API}/videos?limit=10`, {
+          headers: { 'X-API-Key': DROPEMBED_API_KEY }
+        });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const match = (json.data || []).find(v => (v.title || '').includes(remotePrefix));
+        if (match && match.id) {
+          console.log(`   🎉 DropEmbed auto-ingested video! Video ID: ${match.id}`);
+          if (title) {
+            try {
+              await fetch(`${DROPEMBED_API}/videos/${match.id}`, {
+                method: 'PATCH',
+                headers: {
+                  'X-API-Key': DROPEMBED_API_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title, folder_id: DROPEMBED_FOLDER_ID || 0 })
+              });
+              console.log(`   📝 Title updated to: "${title}"`);
+            } catch (err) {
+              console.warn(`   ⚠️ Warning patching title: ${err.message}`);
+            }
+          }
+          return match.id;
+        }
+      } catch (err) {
+        // network retry
+      }
+    }
+    console.warn(`   ⚠️ FTP uploaded but not auto-detected within 60s, falling back...`);
+  } catch (err) {
+    console.warn(`   ⚠️ Strategy 1 (FTP) error: ${err.message}`);
+  }
+
+  // Strategy 2: If <= 95 MB, direct multipart
   if (stat.size <= 95 * 1024 * 1024) {
-    console.log(`   📤 Direct Form Upload (${sizeMb} MB)...`);
+    console.log(`   📤 Strategy 2: Direct Form Upload (${sizeMb} MB)...`);
     const blob = await fs.openAsBlob(filePath, { type: 'video/mp4' });
     const formData = new FormData();
     formData.append('video', blob, path.basename(filePath));
@@ -463,12 +514,12 @@ async function uploadToDropEmbed(filePath, title) {
     if (json.success && json.video_id) {
       return json.video_id;
     }
-    throw new Error(`Direct upload failed: ${JSON.stringify(json)}`);
+    console.warn(`   ⚠️ Direct form upload failed: ${JSON.stringify(json)}`);
   }
 
-  // Strategy B: If > 95 MB, remote upload via Cloudflare Quick Tunnel
+  // Strategy 3: If > 95 MB, remote upload via Cloudflare Quick Tunnel
   if (tunnelUrl) {
-    console.log(`   🌐 Remote Upload via Tunnel URL: ${tunnelUrl}/${path.basename(filePath)} (${sizeMb} MB)...`);
+    console.log(`   🌐 Strategy 3: Remote Upload via Tunnel URL: ${tunnelUrl}/${path.basename(filePath)} (${sizeMb} MB)...`);
     const publicUrl = `${tunnelUrl}/${path.basename(filePath)}`;
 
     const res = await fetch(`${DROPEMBED_API}/videos/remote-upload`, {
@@ -501,7 +552,7 @@ async function uploadToDropEmbed(filePath, title) {
     throw new Error(`Remote upload returned invalid response: ${JSON.stringify(json)}`);
   }
 
-  throw new Error(`File is > 95MB and Cloudflare tunnel is not active.`);
+  throw new Error(`All upload strategies failed for ${filePath}.`);
 }
 
 // ── Database Updater ──
@@ -660,7 +711,7 @@ async function main() {
 
       // Upload to DropEmbed
       console.log(`   🚀 Uploading to DropEmbed...`);
-      const filecode = await uploadToDropEmbed(outputPath, safeTitle);
+      const filecode = await uploadToDropEmbed(outputPath, safeTitle, TMDB_ID, sNum, epNum);
       console.log(`   🎉 Uploaded! DropEmbed Filecode: ${filecode}`);
 
       // Update MySQL

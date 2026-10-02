@@ -65,6 +65,9 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
           DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY }}
+          DROPEMBED_FTP_HOST: ${{ secrets.DROPEMBED_FTP_HOST }}
+          DROPEMBED_FTP_USER: ${{ secrets.DROPEMBED_FTP_USER }}
+          DROPEMBED_FTP_PASS: ${{ secrets.DROPEMBED_FTP_PASS }}
           MAGNET_URI: ${{ inputs.magnet }}
           TMDB_ID: ${{ inputs.tmdb_id }}
           TARGET_SEASON: ${{ inputs.season }}
