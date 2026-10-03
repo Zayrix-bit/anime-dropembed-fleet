@@ -413,16 +413,22 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
     console.log(`   ✅ FTP transfer complete. Waiting for DropEmbed auto-ingestion...`);
 
     const remotePrefix = remoteFilename.replace('.mp4', '');
-    // Poll DropEmbed API for up to 60 seconds
-    for (let attempt = 1; attempt <= 30; attempt++) {
-      await sleep(2000);
+    const cleanPrefixRegex = new RegExp(`tmdb[\\s_]+${tmdbId || '0'}[\\s_]+s0*${sNum || '1'}e0*${epNum || '1'}`, 'i');
+
+    // Poll DropEmbed API for up to 180 seconds (handles large 1GB+ video transcoding)
+    for (let attempt = 1; attempt <= 60; attempt++) {
+      await sleep(3000);
       try {
-        const res = await fetch(`${DROPEMBED_API}/videos?limit=10`, {
+        const res = await fetch(`${DROPEMBED_API}/videos?limit=25`, {
           headers: { 'X-API-Key': DROPEMBED_API_KEY }
         });
         if (!res.ok) continue;
         const json = await res.json();
-        const match = (json.data || []).find(v => (v.title || '').includes(remotePrefix));
+        const match = (json.data || []).find(v => {
+          const t = v.title || '';
+          const norm = t.replace(/\s+/g, '_');
+          return norm.includes(remotePrefix) || cleanPrefixRegex.test(t);
+        });
         if (match && match.id) {
           console.log(`   🎉 DropEmbed auto-ingested video! Video ID: ${match.id}`);
           if (title) {
@@ -446,7 +452,7 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
         // network retry
       }
     }
-    console.warn(`   ⚠️ FTP uploaded but not auto-detected within 60s, falling back...`);
+    console.warn(`   ⚠️ FTP uploaded but not auto-detected within 180s, falling back...`);
   } catch (err) {
     console.warn(`   ⚠️ Strategy 1 (FTP) error: ${err.message}`);
   }
