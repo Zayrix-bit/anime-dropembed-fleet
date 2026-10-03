@@ -1,0 +1,55 @@
+name: 🚀 10-Runner Mega Matrix Fleet
+
+on:
+  workflow_dispatch:
+    inputs:
+      queue_file:
+        description: 'Queue file path (default: mega-matrix-queue.json)'
+        required: false
+        default: 'mega-matrix-queue.json'
+
+jobs:
+  fleet_shard:
+    name: ⚡ Pipeline ${{ matrix.shard + 1 }} / 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 📦 Install Node Dependencies
+        run: npm install
+
+      - name: 🛠️ Install aria2, FFmpeg, and curl
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y aria2 ffmpeg curl
+          echo "=== TOOL VERSIONS ==="
+          aria2c --version | head -n 1
+          ffmpeg -version | head -n 1
+
+      - name: 🚀 Run Shard Worker
+        run: node matrix-runner.js
+        env:
+          SHARD_ID: ${{ matrix.shard }}
+          QUEUE_FILE: ${{ inputs.queue_file }}
+          DB_HOST: ${{ secrets.DB_HOST || '37.27.232.161' }}
+          DB_PORT: ${{ secrets.DB_PORT || '3306' }}
+          DB_USER: ${{ secrets.DB_USER || 'jeevanka_user' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'MyAnimePass@2026!' }}
+          DB_NAME: ${{ secrets.DB_NAME || 'jeevanka_anime' }}
+          DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY || 'dpe_live_c9bbcfeff68964f97bf935152ffe040b' }}
+          DROPEMBED_FTP_HOST: ${{ secrets.DROPEMBED_FTP_HOST || 'ftp.dropembed.com' }}
+          DROPEMBED_FTP_USER: ${{ secrets.DROPEMBED_FTP_USER || 'u11_elfen0909' }}
+          DROPEMBED_FTP_PASS: ${{ secrets.DROPEMBED_FTP_PASS || 'ft_68e7a5694283' }}

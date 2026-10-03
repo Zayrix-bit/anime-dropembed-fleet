@@ -53,6 +53,27 @@ function ensureTrackers(magnetUri) {
   return res;
 }
 
+function btihToHex(btih) {
+  if (!btih) return null;
+  const clean = btih.trim();
+  if (clean.length === 40) return clean.toLowerCase();
+  if (clean.length === 32) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = '';
+    for (let i = 0; i < clean.length; i++) {
+      const val = alphabet.indexOf(clean[i].toUpperCase());
+      if (val === -1) return null;
+      bits += val.toString(2).padStart(5, '0');
+    }
+    let hex = '';
+    for (let i = 0; i + 4 <= bits.length; i += 4) {
+      hex += parseInt(bits.substring(i, i + 4), 2).toString(16);
+    }
+    return hex.slice(0, 40).toLowerCase();
+  }
+  return null;
+}
+
 // ── Resolver for Nyaa.si URLs, Direct .torrent files, and Magnet URIs ──
 async function resolveTorrentSource(input) {
   const trimmed = input.trim();
@@ -60,6 +81,29 @@ async function resolveTorrentSource(input) {
   // Case 1: Direct Magnet URI
   if (trimmed.startsWith('magnet:?')) {
     console.log(`🧲 Input is a direct Magnet URI`);
+    
+    // ⚡ INSTANT SPEEDUP: Try downloading .torrent directly from AnimeTosho cache (0 DHT wait!)
+    const btihMatch = trimmed.match(/xt=urn:btih:([a-zA-Z0-9]{32,40})/i);
+    if (btihMatch) {
+      const hexBtih = btihToHex(btihMatch[1]);
+      if (hexBtih) {
+        const directTorrentUrl = `https://storage.animetosho.org/torrent/${hexBtih}/source.torrent`;
+        try {
+          console.log(`   ⚡ Pre-fetching direct .torrent from AnimeTosho cache (${hexBtih})...`);
+          const res = await fetch(directTorrentUrl, { signal: AbortSignal.timeout(4000) });
+          if (res.ok) {
+            const torrentPath = path.join(DOWNLOADS_DIR, `${hexBtih}.torrent`);
+            const buf = Buffer.from(await res.arrayBuffer());
+            fs.writeFileSync(torrentPath, buf);
+            console.log(`   🚀 Instant .torrent cache hit (${(buf.length / 1024).toFixed(1)} KB)! Bypassing 2-minute DHT resolution!`);
+            return { type: 'torrent_url', source: torrentPath };
+          }
+        } catch (err) {
+          console.warn(`   Direct .torrent cache check: ${err.message}. Using magnet.`);
+        }
+      }
+    }
+    
     return { type: 'magnet', source: ensureTrackers(trimmed) };
   }
 
@@ -249,12 +293,18 @@ async function downloadTorrent(rawInput) {
     '--dht-entry-point=router.bittorrent.com:6881',
     '--dht-entry-point=router.utorrent.com:6881',
     '--bt-enable-lpd=true',
-    '--bt-max-peers=200',
+    '--bt-max-peers=500',
     '--max-connection-per-server=16',
+    '--split=16',
+    '--min-split-size=1M',
+    '--file-allocation=none',              // ⚡ CRITICAL: Zero disk pre-allocation delay (starts instantly)
     '--seed-time=0',
-    '--max-overall-upload-limit=1K',
-    '--summary-interval=5',
-    '--bt-stop-timeout=600',
+    '--max-overall-upload-limit=0',        // ⚡ CRITICAL: Unchoked upload so remote seeders don't throttle us
+    '--max-upload-limit=50M',
+    '--peer-agent=qBittorrent/4.6.5',      // ⚡ Genuine torrent client agent (prevents tracker throttling)
+    '--peer-id-prefix=-qB4650-',
+    '--summary-interval=3',
+    '--bt-stop-timeout=300',
     '--bt-tracker=' + trackers,
     '--dir=' + DOWNLOADS_DIR,
     targetArg
@@ -407,7 +457,7 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
   try {
     console.log(`   📤 Strategy 1: Direct FTP Upload (${sizeMb} MB) to ${DROPEMBED_FTP_HOST}...`);
     const remoteFilename = `tmdb_${tmdbId || '0'}_s${sNum || '1'}e${epNum || '1'}_${Date.now()}.mp4`;
-    const cmd = `curl --ftp-pasv --retry 3 --retry-delay 3 -u "${DROPEMBED_FTP_USER}:${DROPEMBED_FTP_PASS}" -T "${filePath}" "ftp://${DROPEMBED_FTP_HOST}/${remoteFilename}"`;
+    const cmd = `curl --ftp-pasv --connect-timeout 30 --max-time 600 --retry 3 --retry-delay 3 -u "${DROPEMBED_FTP_USER}:${DROPEMBED_FTP_PASS}" -T "${filePath}" "ftp://${DROPEMBED_FTP_HOST}/${remoteFilename}"`;
 
     execSync(cmd, { stdio: 'inherit' });
     console.log(`   ✅ FTP transfer complete. Waiting for DropEmbed auto-ingestion...`);
