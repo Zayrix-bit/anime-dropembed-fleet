@@ -16,6 +16,16 @@ const DB_NAME = process.env.DB_NAME || 'jeevanka_anime';
 
 const DROPEMBED_API_KEY = process.env.DROPEMBED_API_KEY || 'dpe_live_c9bbcfeff68964f97bf935152ffe040b';
 const DROPEMBED_FOLDER_ID = process.env.DROPEMBED_FOLDER_ID ? parseInt(process.env.DROPEMBED_FOLDER_ID, 10) : null;
+const FOLDER_FAN_DUB     = 9;  // Hindi Dub Fan
+const FOLDER_OFFICIAL_DUB = 10; // Hindi Dub Official
+const FOLDER_MOVIE        = 11; // Hindi Movie
+
+function getFolderId(series, targetSeason) {
+  if (DROPEMBED_FOLDER_ID) return DROPEMBED_FOLDER_ID;
+  if (series?.format === 'Movie' || series?.type === 'Movie') return FOLDER_MOVIE;
+  if (series?.dub_type === 'FanDub' || (series?.tmdb_id === 105009 && targetSeason >= 2)) return FOLDER_FAN_DUB;
+  return FOLDER_OFFICIAL_DUB;
+}
 const DROPEMBED_API = 'https://dropembed.com/api';
 const DROPEMBED_FTP_HOST = process.env.DROPEMBED_FTP_HOST || 'ftp.dropembed.com';
 const DROPEMBED_FTP_USER = process.env.DROPEMBED_FTP_USER || 'u11_elfen0909';
@@ -449,9 +459,10 @@ async function remuxToFastWebMp4(inputPath, outputPath) {
 }
 
 // ── Upload to DropEmbed ──
-async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
+async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum, folderId = null) {
   const stat = fs.statSync(filePath);
   const sizeMb = (stat.size / 1024 / 1024).toFixed(1);
+  const targetFolder = folderId || DROPEMBED_FOLDER_ID;
 
   // Strategy 1: Direct FTP Upload (Fastest, direct to DropEmbed origin, no tunnel required)
   try {
@@ -481,19 +492,23 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
         });
         if (match && match.id) {
           console.log(`   🎉 DropEmbed auto-ingested video! Video ID: ${match.id}`);
-          if (title) {
+          if (title || targetFolder) {
             try {
+              const patchBody = {};
+              if (title) patchBody.title = title;
+              if (targetFolder) patchBody.folder_id = targetFolder;
+
               await fetch(`${DROPEMBED_API}/videos/${match.id}`, {
                 method: 'PATCH',
                 headers: {
                   'X-API-Key': DROPEMBED_API_KEY,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ title, folder_id: DROPEMBED_FOLDER_ID || 0 })
+                body: JSON.stringify(patchBody)
               });
-              console.log(`   📝 Title updated to: "${title}"`);
+              console.log(`   📝 Title/Folder updated to: "${title}" (Folder #${targetFolder})`);
             } catch (err) {
-              console.warn(`   ⚠️ Warning patching title: ${err.message}`);
+              console.warn(`   ⚠️ Warning patching title/folder: ${err.message}`);
             }
           }
           return match.id;
@@ -514,7 +529,7 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
     const formData = new FormData();
     formData.append('video', blob, path.basename(filePath));
     if (title) formData.append('title', title);
-    if (DROPEMBED_FOLDER_ID) formData.append('folder_id', DROPEMBED_FOLDER_ID);
+    if (targetFolder) formData.append('folder_id', targetFolder);
 
     const res = await fetch(`${DROPEMBED_API}/videos/upload`, {
       method: 'POST',
@@ -534,7 +549,7 @@ async function uploadToDropEmbed(filePath, title, tmdbId, sNum, epNum) {
 }
 
 // ── Database Updater ──
-async function updateEpisodeInDb(pool, tmdbId, season, episode, filecode, animeTitle) {
+async function updateEpisodeInDb(pool, tmdbId, season, episode, filecode, animeTitle, folderId = null) {
   const embedUrl = `https://dropembed.com/e/${filecode}`;
   const watchUrl = `https://dropembed.com/v/${filecode}`;
 
@@ -552,10 +567,11 @@ async function updateEpisodeInDb(pool, tmdbId, season, episode, filecode, animeT
           embed_url = ?,
           watch_url = ?,
           quality = '1080p',
+          dropembed_folder_id = ?,
           updated_at = NOW()
       WHERE id = ?
-    `, [filecode, embedUrl, watchUrl, existing[0].id]);
-    console.log(`   💾 Database row #${existing[0].id} UPDATED (S${season}E${episode} -> ${filecode})`);
+    `, [filecode, embedUrl, watchUrl, folderId, existing[0].id]);
+    console.log(`   💾 Database row #${existing[0].id} UPDATED (S${season}E${episode} -> ${filecode}, Folder #${folderId})`);
 
     // Ensure NO duplicates ever exist for the same season and episode
     if (existing.length > 1) {
@@ -614,11 +630,15 @@ async function main() {
     connectTimeout: 20000
   });
 
-  // Verify Series Title in DB
+  // Verify Series Info in DB
   let animeTitle = '';
+  let seriesObj = null;
   try {
-    const [series] = await pool.execute('SELECT title FROM dropembed_anime_series WHERE tmdb_id = ?', [TMDB_ID]);
-    if (series.length > 0) animeTitle = series[0].title;
+    const [series] = await pool.execute('SELECT title, format, type, dub_type, tmdb_id FROM dropembed_anime_series WHERE tmdb_id = ?', [TMDB_ID]);
+    if (series.length > 0) {
+      seriesObj = series[0];
+      animeTitle = seriesObj.title;
+    }
     console.log(`📺 Target Series: "${animeTitle || 'TMDB ' + TMDB_ID}" (TMDB ID: ${TMDB_ID})`);
   } catch (err) {
     console.warn(`Warning reading series title: ${err.message}`);
@@ -687,11 +707,12 @@ async function main() {
 
       // Upload to DropEmbed
       console.log(`   🚀 Uploading to DropEmbed...`);
-      const filecode = await uploadToDropEmbed(outputPath, safeTitle, TMDB_ID, sNum, epNum);
-      console.log(`   🎉 Uploaded! DropEmbed Filecode: ${filecode}`);
+      const targetFolder = getFolderId(seriesObj, sNum);
+      const filecode = await uploadToDropEmbed(outputPath, safeTitle, TMDB_ID, sNum, epNum, targetFolder);
+      console.log(`   🎉 Uploaded! DropEmbed Filecode: ${filecode} (Folder #${targetFolder})`);
 
       // Update MySQL
-      await updateEpisodeInDb(pool, TMDB_ID, sNum, epNum, filecode, animeTitle);
+      await updateEpisodeInDb(pool, TMDB_ID, sNum, epNum, filecode, animeTitle, targetFolder);
       processedCount++;
 
       // Cleanup processed mp4 file to preserve disk

@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
-import { spawn, spawnSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +18,25 @@ const DROPEMBED_API_KEY = process.env.DROPEMBED_API_KEY || 'dpe_live_c9bbcfeff68
 const DROPEMBED_FOLDER_ID = process.env.DROPEMBED_FOLDER_ID ? parseInt(process.env.DROPEMBED_FOLDER_ID, 10) : null;
 const DROPEMBED_API = 'https://dropembed.com/api';
 
+const DROPEMBED_FTP_HOST = process.env.DROPEMBED_FTP_HOST || 'ftp.dropembed.com';
+const DROPEMBED_FTP_USER = process.env.DROPEMBED_FTP_USER || 'u11_elfen0909';
+const DROPEMBED_FTP_PASS = process.env.DROPEMBED_FTP_PASS || 'ft_68e7a5694283';
+
+const FOLDER_FAN_DUB     = 9;  // Hindi Dub Fan
+const FOLDER_OFFICIAL_DUB = 10; // Hindi Dub Official
+const FOLDER_MOVIE        = 11; // Hindi Movie
+
+function getFolderId(item) {
+  if (DROPEMBED_FOLDER_ID) return DROPEMBED_FOLDER_ID;
+  if (item?.format === 'Movie' || item?.series_format === 'Movie' || item?.series_type === 'Movie' || item?.ep_format === 'Movie') {
+    return FOLDER_MOVIE;
+  }
+  if (item?.dub_type === 'FanDub' || item?.series_dub_type === 'FanDub' || item?.ep_dub_type === 'FanDub' || (item?.tmdb_id === 105009 && item?.season >= 2)) {
+    return FOLDER_FAN_DUB;
+  }
+  return FOLDER_OFFICIAL_DUB;
+}
+
 const SHARD_INDEX = parseInt(process.env.SHARD_INDEX || '0', 10);
 const TOTAL_SHARDS = parseInt(process.env.TOTAL_SHARDS || '1', 10);
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '0', 10);
@@ -27,7 +46,7 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── Local HTTP Server + Cloudflare Quick Tunnel (For Files > 95 MB) ──
+// ── Local HTTP Server + Cloudflare Quick Tunnel (Fallback for Files > 95 MB) ──
 let tunnelUrl = null;
 let tunnelProc = null;
 const HTTP_PORT = 8080 + (SHARD_INDEX % 10);
@@ -78,7 +97,7 @@ function initLocalServerAndTunnel() {
 
         setTimeout(() => {
           if (!resolved) {
-            console.log(`ℹ️ Cloudflare tunnel not started or timeout (will use direct upload)`);
+            console.log(`ℹ️ Cloudflare tunnel not started or timeout (will use FTP/direct upload)`);
             resolve(null);
           }
         }, 8000);
@@ -197,7 +216,10 @@ function convertHlsToMp4(streamInfo, outputPath) {
     tempPlaylistPath = outputPath.replace('.mp4', '_playlist.m3u8');
     const rewritten = streamInfo.playlistText.split('\n').map(line => {
       const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http')) {
+      if (trimmed && !trimmed.startsWith('#')) {
+        if (trimmed.startsWith('http')) {
+          return trimmed.includes('?') ? `${trimmed}&ext=.ts` : `${trimmed}?ext=.ts`;
+        }
         return `${streamInfo.baseUrl}${trimmed}&ext=.ts`;
       }
       return line;
@@ -262,9 +284,56 @@ function convertHlsToMp4(streamInfo, outputPath) {
 }
 
 // ── Upload MP4 to DropEmbed ──
-async function uploadToDropEmbed(filePath, title, quality) {
+async function uploadToDropEmbed(filePath, title, quality, targetFolder = 10, epInfo = {}) {
   const stat = fs.statSync(filePath);
   const sizeMb = (stat.size / 1024 / 1024).toFixed(1);
+
+  // Strategy 0: Direct FTP Upload (Fastest, direct to DropEmbed origin, no tunnel/size limit)
+  try {
+    console.log(`   📤 Strategy 0: Direct FTP Upload (${sizeMb} MB) to ${DROPEMBED_FTP_HOST}...`);
+    const remoteFilename = `tmdb_${epInfo.tmdb_id || '0'}_s${epInfo.season || '1'}e${epInfo.episode || '1'}_${Date.now()}.mp4`;
+    const cmd = `curl --ftp-pasv --connect-timeout 30 --max-time 600 --retry 3 --retry-delay 3 -u "${DROPEMBED_FTP_USER}:${DROPEMBED_FTP_PASS}" -T "${filePath}" "ftp://${DROPEMBED_FTP_HOST}/${remoteFilename}"`;
+
+    execSync(cmd, { stdio: 'inherit' });
+    console.log(`   ✅ FTP transfer complete. Waiting for DropEmbed auto-ingestion...`);
+
+    const remotePrefix = remoteFilename.replace('.mp4', '');
+    for (let attempt = 1; attempt <= 45; attempt++) {
+      await sleep(3000);
+      try {
+        const listRes = await fetch(`${DROPEMBED_API}/videos?limit=30`, {
+          headers: { 'X-API-Key': DROPEMBED_API_KEY }
+        });
+        if (!listRes.ok) continue;
+        const listJson = await listRes.json();
+        const vids = listJson.videos || listJson.data || [];
+        const match = vids.find(v =>
+          (v.original_filename && v.original_filename.includes(remotePrefix)) ||
+          (v.title && v.title.includes(remotePrefix))
+        );
+        if (match && match.id) {
+          console.log(`   🎉 DropEmbed auto-ingested video! Video ID: ${match.id}`);
+          try {
+            await fetch(`${DROPEMBED_API}/videos/${match.id}`, {
+              method: 'PATCH',
+              headers: {
+                'X-API-Key': DROPEMBED_API_KEY,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ title, folder_id: targetFolder || 0 })
+            });
+          } catch {}
+          return {
+            videoId: match.id,
+            embedUrl: `https://dropembed.com/v/${match.id}`,
+            watchUrl: `https://dropembed.com/v/${match.id}`
+          };
+        }
+      } catch {}
+    }
+  } catch (ftpErr) {
+    console.warn(`   ⚠️ FTP upload warning: ${ftpErr.message}, falling back to Direct/Tunnel...`);
+  }
 
   // Strategy A: If <= 95 MB, upload directly via multipart/form-data (fast & bypasses Cloudflare body limits)
   if (stat.size <= 95 * 1024 * 1024) {
@@ -273,7 +342,7 @@ async function uploadToDropEmbed(filePath, title, quality) {
     const formData = new FormData();
     formData.append('video', blob, path.basename(filePath));
     if (title) formData.append('title', title);
-    if (DROPEMBED_FOLDER_ID) formData.append('folder_id', DROPEMBED_FOLDER_ID);
+    formData.append('folder_id', String(targetFolder || 0));
 
     const res = await fetch(`${DROPEMBED_API}/videos/upload`, {
       method: 'POST',
@@ -303,14 +372,13 @@ async function uploadToDropEmbed(filePath, title, quality) {
         'X-API-Key': DROPEMBED_API_KEY,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ urls: [publicUrl], folder_id: DROPEMBED_FOLDER_ID || 0 })
+      body: JSON.stringify({ urls: [publicUrl], folder_id: targetFolder || 0 })
     });
 
     const json = await res.json();
     const videoId = json?.tasks?.[0]?.video_id || json?.video_id || json?.data?.[0]?.id;
 
     if (videoId) {
-      // Patch video title
       try {
         await fetch(`${DROPEMBED_API}/videos/${videoId}`, {
           method: 'PATCH',
@@ -318,11 +386,10 @@ async function uploadToDropEmbed(filePath, title, quality) {
             'X-API-Key': DROPEMBED_API_KEY,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ title })
+          body: JSON.stringify({ title, folder_id: targetFolder || 0 })
         });
       } catch {}
 
-      // Wait a few seconds for DropEmbed to start streaming through the tunnel
       await sleep(5000);
 
       return {
@@ -354,7 +421,7 @@ async function uploadToDropEmbed(filePath, title, quality) {
     const formData = new FormData();
     formData.append('video', blob, path.basename(compressedPath));
     if (title) formData.append('title', title);
-    if (DROPEMBED_FOLDER_ID) formData.append('folder_id', DROPEMBED_FOLDER_ID);
+    formData.append('folder_id', String(targetFolder || 0));
 
     const res = await fetch(`${DROPEMBED_API}/videos/upload`, {
       method: 'POST',
@@ -418,8 +485,11 @@ async function main() {
       const [rows] = await pool.execute(`
         SELECT 
           d.id, d.anime_title, d.season, d.episode, d.anilist_id, d.tmdb_id, d.stream_type,
-          d.format, a.embed_url as orig_embed, a.quality as orig_quality
+          d.format, d.dub_type, d.filecode,
+          s.type as series_type, s.format as series_format, s.dub_type as series_dub_type,
+          a.embed_url as orig_embed, a.quality as orig_quality, a.direct_mp4_url as orig_direct_mp4
         FROM dropembed_anime_episodes d
+        LEFT JOIN dropembed_anime_series s ON d.tmdb_id = s.tmdb_id
         LEFT JOIN anime_episodes a 
           ON d.anilist_id = a.anilist_id AND d.season = a.season AND d.episode = a.episode
         WHERE d.stream_type IN ('ERROR', 'HLS_ERROR')
@@ -447,19 +517,33 @@ async function main() {
 
   for (let i = 0; i < limited.length; i++) {
     const ep = limited[i];
+    const targetFolder = getFolderId(ep);
     const label = `[${i + 1}/${limited.length}] ${ep.anime_title} S${ep.season}E${ep.episode} (#${ep.id})`;
     const title = `${ep.anime_title} - S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`;
     const mp4FileName = `ep_${ep.id}_${Date.now()}.mp4`;
     const mp4Path = path.join(TEMP_DIR, mp4FileName);
 
     console.log(`----------------------------------------------------------------`);
-    console.log(`🔄 ${label}`);
+    console.log(`🔄 ${label} -> Folder #${targetFolder}`);
+
+    // Check if already recovered by another runner
+    try {
+      const [checkRows] = await pool.execute('SELECT stream_type FROM dropembed_anime_episodes WHERE id = ?', [ep.id]);
+      if (checkRows.length > 0 && checkRows[0].stream_type === 'MP4') {
+        console.log(`   ⏩ Already recovered (MP4), skipping.`);
+        continue;
+      }
+    } catch {}
 
     try {
       // Step 1: Discover Source
       let streamInfo = null;
 
-      if (ep.tmdb_id) {
+      if (ep.orig_direct_mp4) {
+        streamInfo = { type: 'DIRECT_MP4', url: ep.orig_direct_mp4, quality: ep.orig_quality || '720p' };
+      }
+
+      if (!streamInfo && ep.tmdb_id) {
         process.stdout.write('   📡 Probing Blakite stream...');
         streamInfo = await getBlakiteStream(ep.tmdb_id, ep.season, ep.episode);
         if (streamInfo) console.log(` OK (${streamInfo.type} - ${streamInfo.quality || 'auto'})`);
@@ -478,27 +562,13 @@ async function main() {
       let dropembedResult = null;
       let finalQuality = streamInfo.quality || ep.orig_quality || '720p';
 
-      // Step 2: Handle Direct MP4 vs HLS
+      // Step 2: Handle Direct MP4 download vs HLS Remux
       if (streamInfo.type === 'DIRECT_MP4') {
-        console.log(`   ☁️ Remote Uploading Direct MP4 to DropEmbed...`);
-        const res = await fetch(`${DROPEMBED_API}/videos/remote-upload`, {
-          method: 'POST',
-          headers: {
-            'X-API-Key': DROPEMBED_API_KEY,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ urls: [streamInfo.url], folder_id: DROPEMBED_FOLDER_ID || 0 })
-        });
-        const json = await res.json();
-        const videoId = json?.tasks?.[0]?.video_id || json?.video_id;
-        if (videoId) {
-          dropembedResult = {
-            videoId,
-            embedUrl: `https://dropembed.com/v/${videoId}`,
-            watchUrl: `https://dropembed.com/v/${videoId}`
-          };
-        } else {
-          throw new Error(`Remote upload direct MP4 failed: ${JSON.stringify(json)}`);
+        console.log(`   📥 Downloading Direct MP4 (${finalQuality})...`);
+        const dlCmd = `curl -s -L -o "${mp4Path}" "${streamInfo.url}"`;
+        execSync(dlCmd, { timeout: 180000 });
+        if (!fs.existsSync(mp4Path) || fs.statSync(mp4Path).size < 100000) {
+          throw new Error('Direct MP4 download failed or file empty');
         }
       } else {
         // Step 2B: Remux HLS to MP4
@@ -507,19 +577,19 @@ async function main() {
         const fileSize = convertHlsToMp4(streamInfo, mp4Path);
         const remuxSec = ((Date.now() - remuxStart) / 1000).toFixed(1);
         console.log(`   📦 MP4 Created in ${remuxSec}s: ${(fileSize / 1024 / 1024).toFixed(1)} MB`);
-
-        // Step 3: Ingest to DropEmbed
-        dropembedResult = await uploadToDropEmbed(mp4Path, `${title} [${finalQuality}]`, finalQuality);
       }
+
+      // Step 3: Ingest to DropEmbed via FTP (with Direct / Tunnel fallback)
+      dropembedResult = await uploadToDropEmbed(mp4Path, `${title} [${finalQuality}]`, finalQuality, targetFolder, ep);
 
       if (dropembedResult?.videoId) {
         for (let upTry = 1; upTry <= 10; upTry++) {
           try {
             await pool.execute(
               `UPDATE dropembed_anime_episodes 
-               SET stream_type = 'MP4', quality = ?, filecode = ?, embed_url = ?, watch_url = ?, updated_at = NOW() 
+               SET stream_type = 'MP4', quality = ?, filecode = ?, embed_url = ?, watch_url = ?, dropembed_folder_id = ?, updated_at = NOW() 
                WHERE id = ?`,
-              [finalQuality, dropembedResult.videoId, dropembedResult.embedUrl, dropembedResult.watchUrl, ep.id]
+              [finalQuality, dropembedResult.videoId, dropembedResult.embedUrl, dropembedResult.watchUrl, targetFolder, ep.id]
             );
             break;
           } catch (upErr) {
@@ -530,8 +600,19 @@ async function main() {
             }
           }
         }
-        console.log(`   ✅ SUCCESS: DropEmbed ID = ${dropembedResult.videoId}`);
+        console.log(`   ✅ SUCCESS: DropEmbed ID = ${dropembedResult.videoId} (Folder #${targetFolder})`);
         recovered++;
+
+        // Clean up old dead video from DropEmbed if it existed
+        if (ep.filecode && ep.filecode !== dropembedResult.videoId) {
+          try {
+            await fetch(`${DROPEMBED_API}/videos/${ep.filecode}`, {
+              method: 'DELETE',
+              headers: { 'X-API-Key': DROPEMBED_API_KEY }
+            });
+            console.log(`   🗑️ Purged old dead DropEmbed video (${ep.filecode})`);
+          } catch {}
+        }
       }
     } catch (err) {
       console.log(`   ❌ ERROR: ${err.message}`);

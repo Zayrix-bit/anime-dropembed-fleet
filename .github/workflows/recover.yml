@@ -13,12 +13,12 @@ jobs:
   recover:
     name: Recovery Shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 6
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3, 4, 5]
 
     steps:
       - name: 📥 Checkout
@@ -36,7 +36,7 @@ jobs:
       - name: 🛠️ Setup FFmpeg and Cloudflared
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg curl
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
           sudo chmod +x /usr/local/bin/cloudflared
           cloudflared --version
@@ -51,6 +51,9 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
           DROPEMBED_API_KEY: ${{ secrets.DROPEMBED_API_KEY }}
+          DROPEMBED_FTP_HOST: ${{ secrets.DROPEMBED_FTP_HOST }}
+          DROPEMBED_FTP_USER: ${{ secrets.DROPEMBED_FTP_USER }}
+          DROPEMBED_FTP_PASS: ${{ secrets.DROPEMBED_FTP_PASS }}
           SHARD_INDEX: ${{ matrix.shard }}
-          TOTAL_SHARDS: 3
+          TOTAL_SHARDS: 6
           BATCH_SIZE: ${{ inputs.batch_size }}

@@ -74,8 +74,22 @@ async function getDropEmbedAccountStatus() {
         used_gb: storageGb,
         used_bytes: d.storage?.used_bytes || 0,
         status_badge: 'ACTIVE & UNLIMITED',
-        status_msg: 'Direct Remote Ingest Active • No Daily Quota Limits'
+        status_msg: 'Direct Remote Ingest Active • No Daily Quota Limits',
+        folders: []
       };
+
+      try {
+        const foldRes = await fetch('https://dropembed.com/api/folders', {
+          headers: { 'X-API-Key': DROPEMBED_API_KEY }
+        });
+        if (foldRes.ok) {
+          const fJson = await foldRes.json();
+          cachedDropEmbedAccount.folders = fJson.folders || [];
+        }
+      } catch (fErr) {
+        console.warn('Folder stats fetch warning:', fErr.message);
+      }
+
       lastDropEmbedFetch = now;
       return cachedDropEmbedAccount;
     }

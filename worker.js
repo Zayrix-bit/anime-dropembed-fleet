@@ -21,6 +21,16 @@ const DB_NAME = process.env.DB_NAME || 'jeevanka_anime';
 
 const DROPEMBED_API_KEY = process.env.DROPEMBED_API_KEY || 'dpe_live_c9bbcfeff68964f97bf935152ffe040b';
 const DROPEMBED_FOLDER_ID = process.env.DROPEMBED_FOLDER_ID ? parseInt(process.env.DROPEMBED_FOLDER_ID, 10) : null;
+const FOLDER_FAN_DUB     = 9;  // Hindi Dub Fan
+const FOLDER_OFFICIAL_DUB = 10; // Hindi Dub Official
+const FOLDER_MOVIE        = 11; // Hindi Movie
+
+function getFolderId(ep, series) {
+  if (DROPEMBED_FOLDER_ID) return DROPEMBED_FOLDER_ID;
+  if (ep?.format === 'Movie' || series?.format === 'Movie' || series?.type === 'Movie') return FOLDER_MOVIE;
+  if (ep?.dub_type === 'FanDub' || series?.dub_type === 'FanDub' || (series?.tmdb_id === 105009 && ep?.season >= 2)) return FOLDER_FAN_DUB;
+  return FOLDER_OFFICIAL_DUB;
+}
 
 const SHARD_INDEX = parseInt(process.env.SHARD_INDEX || '0', 10);
 const TOTAL_SHARDS = parseInt(process.env.TOTAL_SHARDS || '1', 10);
@@ -66,8 +76,9 @@ async function checkStreamReachable(streamUrl) {
   }
 }
 
-async function uploadToDropEmbedViaRemote(streamUrl, title, maxRetries = 3) {
+async function uploadToDropEmbedViaRemote(streamUrl, title, folderId = null, maxRetries = 3) {
   const remoteUrl = 'https://dropembed.com/api/videos/remote-upload';
+  const targetFolder = folderId || DROPEMBED_FOLDER_ID;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -115,7 +126,7 @@ async function uploadToDropEmbedViaRemote(streamUrl, title, maxRetries = 3) {
                   'X-API-Key': DROPEMBED_API_KEY,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ title, folder_id: DROPEMBED_FOLDER_ID || 0 })
+                body: JSON.stringify({ title, folder_id: targetFolder || 0 })
               }).catch(() => {});
             }
             return {
@@ -139,7 +150,7 @@ async function uploadToDropEmbedViaRemote(streamUrl, title, maxRetries = 3) {
       if (title) {
         try {
           const patchBody = { title };
-          if (DROPEMBED_FOLDER_ID) patchBody.folder_id = DROPEMBED_FOLDER_ID;
+          if (targetFolder) patchBody.folder_id = targetFolder;
 
           await fetch(`https://dropembed.com/api/videos/${videoId}`, {
             method: 'PATCH',
@@ -275,7 +286,7 @@ async function main() {
 
       // Fetch next HLS episode assigned to this shard from dropembed_anime_episodes
       let query = `
-        SELECT id, tmdb_id, anime_title, format, season, episode, quality, filecode, qualities_json
+        SELECT id, tmdb_id, anime_title, format, dub_type, season, episode, quality, filecode, qualities_json
         FROM dropembed_anime_episodes
         WHERE stream_type = 'HLS'
       `;
@@ -358,10 +369,11 @@ async function main() {
       try {
         console.log(`   🚀 Dispatching Remote Upload to DropEmbed: "${finalUploadTitle}"...`);
         const upStart = Date.now();
-        const dropembedResult = await uploadToDropEmbedViaRemote(finalStreamUrl, finalUploadTitle);
+        const targetFolder = getFolderId(ep);
+        const dropembedResult = await uploadToDropEmbedViaRemote(finalStreamUrl, finalUploadTitle, targetFolder);
         const upSec = ((Date.now() - upStart) / 1000).toFixed(1);
 
-        console.log(`   ✅ Upload Queued in ${upSec}s! Video ID: ${dropembedResult.videoId}`);
+        console.log(`   ✅ Upload Queued in ${upSec}s! Video ID: ${dropembedResult.videoId} (Folder #${targetFolder})`);
         console.log(`      🔗 Embed URL: ${dropembedResult.embedUrl}`);
 
         const qualitiesPayload = JSON.stringify({
@@ -382,7 +394,8 @@ async function main() {
             embed_url = ?,
             watch_url = ?,
             quality = ?,
-            qualities_json = ?
+            qualities_json = ?,
+            dropembed_folder_id = ?
           WHERE id = ?
         `, [
           dropembedResult.videoId,
@@ -390,6 +403,7 @@ async function main() {
           dropembedResult.watchUrl,
           finalSpec.label,
           qualitiesPayload,
+          targetFolder,
           ep.id
         ]);
 
